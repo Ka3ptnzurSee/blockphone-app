@@ -32,11 +32,7 @@
     "plugins": [
       "expo-splash-screen"
     ],
-    "extra": {
-      "eas": {
-        "projectId": "1dbe7a42-4c70-4fa8-b735-1e27258def1a"
-      }
-    },
+    "extra": {},
     "owner": "per2004"
   }
 }
