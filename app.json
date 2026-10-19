@@ -1,0 +1,42 @@
+{
+  "expo": {
+    "name": "InternetBlocker",
+    "slug": "internetblocker",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0b0d12",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.meister.internetblocker",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "CFBundleDisplayName": "InternetBlocker"
+      },
+      "buildNumber": "1"
+    },
+    "android": {
+      "package": "com.meister.internetblocker",
+      "adaptiveIcon": {
+        "backgroundColor": "#0b0d12",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-splash-screen"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "1dbe7a42-4c70-4fa8-b735-1e27258def1a"
+      }
+    },
+    "owner": "per2004"
+  }
+}
