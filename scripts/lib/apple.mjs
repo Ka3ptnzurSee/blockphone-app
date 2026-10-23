@@ -68,18 +68,15 @@ export function createContext(projectDir) {
 
 // Schreibt JSON mit restriktiven Permissions (Private-Keys/Passwörter).
 export function writeSecretJson(filePath, data) {
-  // Symlink-Ziel verweigern (verhindert Umleitung auf fremde Dateien).
-  let st;
+  const content = JSON.stringify(data, null, 2) + '\n';
+  // Atomar + symlink-sicher schreiben: O_NOFOLLOW verweigert Symlink-Ziele,
+  // mode 0600 beim Anlegen, fchmod sichert Permissions über den offenen fd.
+  const flags = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_TRUNC | fs.constants.O_NOFOLLOW;
+  const fd = fs.openSync(filePath, flags, 0o600);
   try {
-    st = fs.lstatSync(filePath);
-  } catch (e) {
-    if (e.code !== 'ENOENT') throw e; // ENOENT = Datei existiert noch nicht
+    fs.writeFileSync(fd, content);
+    fs.fchmodSync(fd, 0o600);
+  } finally {
+    fs.closeSync(fd);
   }
-  if (st && st.isSymbolicLink()) {
-    throw new Error(`Verweigere Schreiben auf Symlink: ${filePath}`);
-  }
-  // Bestehende Datei vor dem Schreiben absichern, neue direkt restriktiv anlegen.
-  if (fs.existsSync(filePath)) fs.chmodSync(filePath, 0o600);
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + '\n', { mode: 0o600 });
-  fs.chmodSync(filePath, 0o600);
 }

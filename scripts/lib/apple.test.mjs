@@ -43,3 +43,16 @@ test('writeSecretJson schreibt mit Permissions 0600', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('writeSecretJson verweigert Symlink-Ziele', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'apple-test-'));
+  const target = path.join(dir, 'target.json');
+  const link = path.join(dir, 'credentials.json');
+  try {
+    fs.writeFileSync(target, '{}');
+    fs.symlinkSync(target, link);
+    assert.throws(() => writeSecretJson(link, { ios: {} }));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
