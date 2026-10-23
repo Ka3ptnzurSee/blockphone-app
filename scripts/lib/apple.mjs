@@ -16,10 +16,8 @@ export function loadAppleUtils() {
     try { return require(c); } catch (e) { errors.push(`${c}: ${e?.message ?? e}`); }
   }
   // Fallback: lokal im Projekt
-  for (const base of [process.cwd()]) {
-    const c = path.join(base, 'node_modules/@expo/apple-utils');
-    try { return require(c); } catch (e) { errors.push(`${c}: ${e?.message ?? e}`); }
-  }
+  const local = path.join(process.cwd(), 'node_modules/@expo/apple-utils');
+  try { return require(local); } catch (e) { errors.push(`${local}: ${e?.message ?? e}`); }
   throw new Error(
     '@expo/apple-utils nicht gefunden. eas-cli global installieren: npm i -g eas-cli\n' + errors.join('\n')
   );
@@ -52,7 +50,12 @@ export function createContext(projectDir) {
     throw new Error('keys.json: ascApiKey.keyId und ascApiKey.issuerId müssen gesetzt sein.');
   }
   const keyPath = resolveKeyPath(projectDir, keys.ascApiKey?.keyPath);
-  const keyP8 = fs.readFileSync(keyPath, 'utf8');
+  let keyP8;
+  try {
+    keyP8 = fs.readFileSync(keyPath, 'utf8');
+  } catch (e) {
+    throw new Error(`.p8-Schlüssel fehlt oder ist unlesbar (${keyPath}): ${e?.message ?? e}`);
+  }
   if (!keyP8.includes('PRIVATE KEY')) {
     throw new Error(`${keyPath} sieht nicht nach einer .p8-Datei aus`);
   }
@@ -68,6 +71,9 @@ export function createContext(projectDir) {
 
 // Schreibt JSON mit restriktiven Permissions (Private-Keys/Passwörter).
 export function writeSecretJson(filePath, data) {
+  if (fs.constants.O_NOFOLLOW === undefined) {
+    throw new Error('writeSecretJson erfordert O_NOFOLLOW (nur Linux/macOS unterstützt).');
+  }
   const content = JSON.stringify(data, null, 2) + '\n';
   // Atomar + symlink-sicher schreiben: O_NOFOLLOW verweigert Symlink-Ziele,
   // mode 0600 beim Anlegen, fchmod sichert Permissions über den offenen fd.

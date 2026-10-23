@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { resolveKeyPath, writeSecretJson } from './apple.mjs';
+import { resolveKeyPath, writeSecretJson, loadKeys, createContext } from './apple.mjs';
 
 test('resolveKeyPath nutzt basename unter credentials/', () => {
   assert.equal(
@@ -52,6 +52,43 @@ test('writeSecretJson verweigert Symlink-Ziele', () => {
     fs.writeFileSync(target, '{}');
     fs.symlinkSync(target, link);
     assert.throws(() => writeSecretJson(link, { ios: {} }));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('loadKeys liest keys.json', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'apple-test-'));
+  const creds = path.join(dir, 'credentials');
+  fs.mkdirSync(creds);
+  fs.writeFileSync(path.join(creds, 'keys.json'), JSON.stringify({ ascApiKey: { keyId: 'K', issuerId: 'I' } }));
+  try {
+    const keys = loadKeys(dir);
+    assert.equal(keys.ascApiKey.keyId, 'K');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('loadKeys wirft bei korrupter keys.json', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'apple-test-'));
+  const creds = path.join(dir, 'credentials');
+  fs.mkdirSync(creds);
+  fs.writeFileSync(path.join(creds, 'keys.json'), '{ kaputt');
+  try {
+    assert.throws(() => loadKeys(dir), /keys\.json fehlt oder ist unlesbar/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('createContext wirft bei fehlender keyId/issuerId', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'apple-test-'));
+  const creds = path.join(dir, 'credentials');
+  fs.mkdirSync(creds);
+  fs.writeFileSync(path.join(creds, 'keys.json'), JSON.stringify({ ascApiKey: { keyPath: 'key.p8' } }));
+  try {
+    assert.throws(() => createContext(dir), /keyId und ascApiKey\.issuerId müssen gesetzt sein/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
