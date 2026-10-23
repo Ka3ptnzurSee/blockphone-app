@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "InternetBlocker",
+    "name": "Blockphone",
     "slug": "internetblocker",
     "version": "0.1.0",
     "orientation": "portrait",
@@ -9,15 +9,15 @@
     "backgroundColor": "#0b0d12",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.meister.internetblocker",
+      "bundleIdentifier": "com.meister.blockphone",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "CFBundleDisplayName": "InternetBlocker"
+        "CFBundleDisplayName": "Blockphone"
       },
       "buildNumber": "1"
     },
     "android": {
-      "package": "com.meister.internetblocker",
+      "package": "com.meister.blockphone",
       "adaptiveIcon": {
         "backgroundColor": "#0b0d12",
         "foregroundImage": "./assets/android-icon-foreground.png",
