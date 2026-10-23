@@ -3,49 +3,35 @@
 // Apple-Limit von 3 Distribution-Zertifikaten pro Team).
 //
 // Erzeugt: Bundle-ID (falls nötig) + App-Store-Provisioning-Profil.
-// Übernimmt p12 + Passwort aus der vorhandenen credentials.json.
+// Übernimmt p12 + Passwort aus der vorhandenen credentials.json (merge).
 //
 // Nutzung:
-//   BUNDLE_ID=com.meister.blockphone APP_NAME="Blockphone" \
-//   REUSE_CERT_ID=SS85KG94PB node scripts/provision-ios-reuse.mjs
+//   REUSE_CERT_ID=SS85KG94PB BUNDLE_ID=com.meister.blockphone APP_NAME="Blockphone" \
+//     node scripts/provision-ios-reuse.mjs
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRequire } from 'node:module';
+import {
+  loadAppleUtils, createContext, writeSecretJson,
+} from './lib/apple.mjs';
 
-const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectDir = path.resolve(__dirname, '..');
 
-function loadAppleUtils() {
-  const candidates = [
-    '/usr/lib/node_modules/eas-cli/node_modules/@expo/apple-utils',
-    'C:/Users/Meister/AppData/Roaming/npm/node_modules/eas-cli/node_modules/@expo/apple-utils',
-    path.join(projectDir, 'node_modules/@expo/apple-utils'),
-  ];
-  for (const c of candidates) {
-    try { return require(c); } catch { /* weiter */ }
-  }
-  throw new Error('@expo/apple-utils nicht gefunden – eas-cli global installieren: npm i -g eas-cli');
-}
-
 const {
-  Token, BundleId, BundleIdPlatform, Certificate, CertificateType,
-  Profile, ProfileType,
+  BundleId, BundleIdPlatform, Certificate, CertificateType, Profile, ProfileType,
 } = loadAppleUtils();
 
-const keys = JSON.parse(fs.readFileSync(path.join(projectDir, 'credentials', 'keys.json'), 'utf8'));
 const BUNDLE_ID = process.env.BUNDLE_ID || 'com.meister.blockphone';
 const APP_NAME = process.env.APP_NAME || 'Blockphone';
-const REUSE_CERT_ID = process.env.REUSE_CERT_ID || 'SS85KG94PB';
+const REUSE_CERT_ID = process.env.REUSE_CERT_ID;
+if (!REUSE_CERT_ID) {
+  console.error('FEHLER: REUSE_CERT_ID muss gesetzt sein (ID des wiederzuverwendenden Distribution-Zertifikats).');
+  process.exit(1);
+}
 
 async function main() {
-  const keyP8 = fs.readFileSync(path.join(projectDir, keys.ascApiKey.keyPath), 'utf8');
-  if (!keyP8.includes('PRIVATE KEY')) {
-    throw new Error(`${keys.ascApiKey.keyPath} sieht nicht nach einer .p8-Datei aus`);
-  }
-  const token = new Token({ key: keyP8, issuerId: keys.ascApiKey.issuerId, keyId: keys.ascApiKey.keyId, duration: 1200 });
-  const context = { token };
+  const { context } = createContext(projectDir);
 
   // 1) Bundle-ID anlegen / finden
   let bundleId = await BundleId.findAsync(context, { identifier: BUNDLE_ID });
@@ -63,10 +49,14 @@ async function main() {
   let cert;
   try {
     cert = await Certificate.infoAsync(context, { id: REUSE_CERT_ID });
-    console.log(`✓ Zertifikat wiederverwendet (id=${cert.id}, serial=${cert.attributes.serialNumber}, expires=${cert.attributes.expirationDate})`);
-  } catch {
-    throw new Error(`Zertifikat ${REUSE_CERT_ID} nicht gefunden – REUSE_CERT_ID prüfen.`);
+  } catch (e) {
+    const msg = e?.message ?? e;
+    if (String(msg).includes('not found') || String(msg).includes('NOT_FOUND') || String(msg).includes('404')) {
+      throw new Error(`Zertifikat ${REUSE_CERT_ID} nicht gefunden – REUSE_CERT_ID prüfen.`);
+    }
+    throw e;
   }
+  console.log(`✓ Zertifikat wiederverwendet (id=${cert.id}, serial=${cert.attributes.serialNumber}, expires=${cert.attributes.expirationDate})`);
   if (![CertificateType.IOS_DISTRIBUTION, CertificateType.DISTRIBUTION].includes(cert.attributes.certificateType)) {
     throw new Error(`Zertifikat ${REUSE_CERT_ID} ist kein iOS-Distribution-Zertifikat (type=${cert.attributes.certificateType}).`);
   }
@@ -83,26 +73,27 @@ async function main() {
   });
   console.log(`✓ Profil erstellt (id=${profile.id}, uuid=${profile.attributes.uuid})`);
 
-  // 4) Profil schreiben + credentials.json aktualisieren (p12 + Passwort bleiben)
+  // 4) Profil schreiben + credentials.json MERGEN (p12 + Passwort bleiben erhalten)
   const credsDir = path.join(projectDir, 'credentials');
+  fs.mkdirSync(credsDir, { recursive: true });
   const profilePath = path.join(credsDir, 'ios_appstore.mobileprovision');
   fs.writeFileSync(profilePath, Buffer.from(profile.attributes.profileContent, 'base64'));
 
-  let p12Path = 'credentials/ios_distribution.p12';
-  let p12Password = '';
-  const existingCredsPath = path.join(projectDir, 'credentials.json');
-  if (fs.existsSync(existingCredsPath)) {
-    const existing = JSON.parse(fs.readFileSync(existingCredsPath, 'utf8'));
-    p12Path = existing.ios?.distributionCertificate?.path || p12Path;
-    p12Password = existing.ios?.distributionCertificate?.password || '';
+  const credsJsonPath = path.join(projectDir, 'credentials.json');
+  let existing = {};
+  if (fs.existsSync(credsJsonPath)) {
+    try { existing = JSON.parse(fs.readFileSync(credsJsonPath, 'utf8')); } catch { /* überschreiben */ }
   }
-
-  fs.writeFileSync(existingCredsPath, JSON.stringify({
+  const p12Path = existing.ios?.distributionCertificate?.path || 'credentials/ios_distribution.p12';
+  const p12Password = existing.ios?.distributionCertificate?.password || '';
+  writeSecretJson(credsJsonPath, {
+    ...existing,
     ios: {
+      ...(existing.ios || {}),
       provisioningProfilePath: 'credentials/ios_appstore.mobileprovision',
       distributionCertificate: { path: p12Path, password: p12Password },
     },
-  }, null, 2) + '\n');
+  });
 
   console.log('\n=== Fertig ===');
   console.log('Bundle-ID:', BUNDLE_ID);

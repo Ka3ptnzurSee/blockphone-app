@@ -2,29 +2,30 @@
 // Nutzung:
 //   node scripts/get-asc-app-id.mjs com.meister.blockphone
 //   BUNDLE_ID=com.meister.blockphone node scripts/get-asc-app-id.mjs
-import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRequire } from 'node:module';
+import { loadAppleUtils, createContext } from './lib/apple.mjs';
 
-const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectDir = path.resolve(__dirname, '..');
 
-const appleUtils = require('/usr/lib/node_modules/eas-cli/node_modules/@expo/apple-utils');
-const { Token, App } = appleUtils;
-
-const keys = JSON.parse(fs.readFileSync(path.join(projectDir, 'credentials', 'keys.json'), 'utf8'));
-const keyP8 = fs.readFileSync(path.join(projectDir, keys.ascApiKey.keyPath), 'utf8');
 const BUNDLE_ID = process.env.BUNDLE_ID || process.argv[2];
+if (!BUNDLE_ID) {
+  console.error('FEHLER: Bundle-ID als Argument oder BUNDLE_ID angeben.');
+  process.exit(1);
+}
 
 async function main() {
-  const token = new Token({ key: keyP8, issuerId: keys.ascApiKey.issuerId, keyId: keys.ascApiKey.keyId, duration: 1200 });
-  const apps = await App.getAsync({ token });
-  for (const a of apps) {
-    if (!BUNDLE_ID || a.attributes.bundleId === BUNDLE_ID) {
-      console.log(`id=${a.id}  bundleId=${a.attributes.bundleId}  name=${a.attributes.name}`);
-    }
+  const { App } = loadAppleUtils();
+  const { context } = createContext(projectDir);
+  const apps = await App.getAsync(context);
+  const match = apps.filter((a) => a.attributes.bundleId === BUNDLE_ID);
+  if (match.length === 0) {
+    console.error(`Keine App mit bundleId "${BUNDLE_ID}" gefunden. App-Record existiert noch nicht?`);
+    process.exit(1);
+  }
+  for (const a of match) {
+    console.log(`id=${a.id}  bundleId=${a.attributes.bundleId}  name=${a.attributes.name}`);
   }
 }
 
