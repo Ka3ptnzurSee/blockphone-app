@@ -61,8 +61,14 @@ async function main() {
     throw new Error(`Zertifikat ${REUSE_CERT_ID} ist kein iOS-Distribution-Zertifikat (type=${cert.attributes.certificateType}).`);
   }
 
-  // 3) App-Store-Provisioning-Profil
+  // 3) App-Store-Provisioning-Profil (altes gleichnamiges zuerst löschen)
   const profileName = `${APP_NAME} ${BUNDLE_ID} AppStore`;
+  const allProfiles = await Profile.getAsync(context);
+  const duplicates = allProfiles.filter((p) => p.attributes.name === profileName);
+  for (const p of duplicates) {
+    console.log(`→ altes Profil "${profileName}" löschen (id=${p.id}) …`);
+    await p.deleteAsync();
+  }
   console.log(`→ Provisioning-Profil "${profileName}" erzeugen …`);
   const profile = await Profile.createAsync(context, {
     bundleId: bundleId.id,
