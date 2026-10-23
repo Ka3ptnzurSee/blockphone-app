@@ -35,6 +35,7 @@ async function main() {
   const jwt = await token.getToken();
   const res = await fetch(`${API}/bundleIdCapabilities`, {
     method: 'POST',
+    redirect: 'error',
     signal: AbortSignal.timeout(30_000),
     headers: {
       Authorization: `Bearer ${jwt}`,

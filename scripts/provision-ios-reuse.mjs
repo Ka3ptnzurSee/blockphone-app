@@ -57,7 +57,7 @@ async function main() {
     throw e;
   }
   console.log(`✓ Zertifikat wiederverwendet (id=${cert.id}, serial=${cert.attributes.serialNumber}, expires=${cert.attributes.expirationDate})`);
-  if (![CertificateType.IOS_DISTRIBUTION, CertificateType.DISTRIBUTION].includes(cert.attributes.certificateType)) {
+  if (![CertificateType.IOS_DISTRIBUTION].includes(cert.attributes.certificateType)) {
     throw new Error(`Zertifikat ${REUSE_CERT_ID} ist kein iOS-Distribution-Zertifikat (type=${cert.attributes.certificateType}).`);
   }
 
@@ -84,6 +84,7 @@ async function main() {
   fs.mkdirSync(credsDir, { recursive: true });
   const profilePath = path.join(credsDir, 'ios_appstore.mobileprovision');
   fs.writeFileSync(profilePath, Buffer.from(profile.attributes.profileContent, 'base64'), { mode: 0o600 });
+  fs.chmodSync(profilePath, 0o600);
 
   const credsJsonPath = path.join(projectDir, 'credentials.json');
   let existing = {};

@@ -32,7 +32,7 @@ export function loadKeys(projectDir) {
 
 // Erzwingt, dass der .p8-Schlüssel immer im credentials/-Verzeichnis liegt
 // (verhindert Path-Traversal über einen manipulierten keyPath in keys.json).
-function resolveKeyPath(projectDir, keyPath) {
+export function resolveKeyPath(projectDir, keyPath) {
   const file = path.basename(keyPath ?? '');
   if (!file || file === '.' || file === '..') {
     throw new Error(`Ungültiger ascApiKey.keyPath: "${keyPath}"`);
@@ -43,6 +43,10 @@ function resolveKeyPath(projectDir, keyPath) {
 // Baut den ASC-Token + Kontext. Validiert, dass die .p8 ein Private Key ist.
 export function createContext(projectDir) {
   const keys = loadKeys(projectDir);
+  const { keyId, issuerId } = keys.ascApiKey || {};
+  if (!keyId || !issuerId) {
+    throw new Error('keys.json: ascApiKey.keyId und ascApiKey.issuerId müssen gesetzt sein.');
+  }
   const keyPath = resolveKeyPath(projectDir, keys.ascApiKey?.keyPath);
   const keyP8 = fs.readFileSync(keyPath, 'utf8');
   if (!keyP8.includes('PRIVATE KEY')) {
@@ -51,8 +55,8 @@ export function createContext(projectDir) {
   const { Token } = loadAppleUtils();
   const token = new Token({
     key: keyP8,
-    issuerId: keys.ascApiKey.issuerId,
-    keyId: keys.ascApiKey.keyId,
+    issuerId,
+    keyId,
     duration: 1200,
   });
   return { keys, token, context: { token } };
