@@ -81,8 +81,12 @@ async function main() {
 
   // 4) Profil schreiben + credentials.json MERGEN (p12 + Passwort bleiben erhalten)
   const credsDir = path.join(projectDir, 'credentials');
-  fs.mkdirSync(credsDir, { recursive: true });
+  fs.mkdirSync(credsDir, { recursive: true, mode: 0o700 });
+  fs.chmodSync(credsDir, 0o700);
   const profilePath = path.join(credsDir, 'ios_appstore.mobileprovision');
+  if (!profile.attributes.profileContent) {
+    throw new Error('Profil ohne profileContent von der ASC-API zurückgegeben.');
+  }
   fs.writeFileSync(profilePath, Buffer.from(profile.attributes.profileContent, 'base64'), { mode: 0o600 });
   fs.chmodSync(profilePath, 0o600);
 

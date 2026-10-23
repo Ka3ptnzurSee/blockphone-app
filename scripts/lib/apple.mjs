@@ -27,7 +27,11 @@ export function loadAppleUtils() {
 
 export function loadKeys(projectDir) {
   const keysPath = path.join(projectDir, 'credentials', 'keys.json');
-  return JSON.parse(fs.readFileSync(keysPath, 'utf8'));
+  try {
+    return JSON.parse(fs.readFileSync(keysPath, 'utf8'));
+  } catch (e) {
+    throw new Error(`credentials/keys.json fehlt oder ist unlesbar (${keysPath}): ${e?.message ?? e}`);
+  }
 }
 
 // Erzwingt, dass der .p8-Schlüssel immer im credentials/-Verzeichnis liegt
@@ -64,8 +68,17 @@ export function createContext(projectDir) {
 
 // Schreibt JSON mit restriktiven Permissions (Private-Keys/Passwörter).
 export function writeSecretJson(filePath, data) {
-  // Bestehende Datei vor dem Schreiben absichern (schließt TOCTOU-Fenster),
-  // neue Dateien direkt mit restriktiven Permissions anlegen.
+  // Symlink-Ziel verweigern (verhindert Umleitung auf fremde Dateien).
+  let st;
+  try {
+    st = fs.lstatSync(filePath);
+  } catch (e) {
+    if (e.code !== 'ENOENT') throw e; // ENOENT = Datei existiert noch nicht
+  }
+  if (st && st.isSymbolicLink()) {
+    throw new Error(`Verweigere Schreiben auf Symlink: ${filePath}`);
+  }
+  // Bestehende Datei vor dem Schreiben absichern, neue direkt restriktiv anlegen.
   if (fs.existsSync(filePath)) fs.chmodSync(filePath, 0o600);
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + '\n', { mode: 0o600 });
   fs.chmodSync(filePath, 0o600);

@@ -8,8 +8,8 @@ import { resolveKeyPath, writeSecretJson } from './apple.mjs';
 
 test('resolveKeyPath nutzt basename unter credentials/', () => {
   assert.equal(
-    resolveKeyPath('/proj', 'credentials/AscApiKey_26AXZ5M8UR.p8'),
-    path.join('/proj', 'credentials', 'AscApiKey_26AXZ5M8UR.p8')
+    resolveKeyPath('/proj', 'credentials/AscApiKey_EXAMPLE.p8'),
+    path.join('/proj', 'credentials', 'AscApiKey_EXAMPLE.p8')
   );
 });
 
