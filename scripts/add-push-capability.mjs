@@ -16,7 +16,7 @@ const BUNDLE_ID = process.env.BUNDLE_ID || 'com.meister.blockphone';
 const API = 'https://api.appstoreconnect.apple.com/v1';
 
 async function main() {
-  const { keys, token, context } = createContext(projectDir);
+  const { token, context } = createContext(projectDir);
 
   const bundleId = await BundleId.findAsync(context, { identifier: BUNDLE_ID });
   if (!bundleId) {
@@ -35,6 +35,7 @@ async function main() {
   const jwt = await token.getToken();
   const res = await fetch(`${API}/bundleIdCapabilities`, {
     method: 'POST',
+    signal: AbortSignal.timeout(30_000),
     headers: {
       Authorization: `Bearer ${jwt}`,
       'Content-Type': 'application/json',
@@ -54,7 +55,6 @@ async function main() {
     throw new Error(`ASC-API Fehler ${res.status}: ${body.slice(0, 500)}`);
   }
   console.log('✓ Push-Notifications-Capability aktiviert.');
-  void keys;
 }
 
 main().catch((e) => { console.error('FEHLER:', e?.message ?? e); process.exit(1); });

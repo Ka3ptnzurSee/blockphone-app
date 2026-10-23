@@ -83,21 +83,27 @@ async function main() {
   const credsDir = path.join(projectDir, 'credentials');
   fs.mkdirSync(credsDir, { recursive: true });
   const profilePath = path.join(credsDir, 'ios_appstore.mobileprovision');
-  fs.writeFileSync(profilePath, Buffer.from(profile.attributes.profileContent, 'base64'));
+  fs.writeFileSync(profilePath, Buffer.from(profile.attributes.profileContent, 'base64'), { mode: 0o600 });
 
   const credsJsonPath = path.join(projectDir, 'credentials.json');
   let existing = {};
   if (fs.existsSync(credsJsonPath)) {
-    try { existing = JSON.parse(fs.readFileSync(credsJsonPath, 'utf8')); } catch { /* überschreiben */ }
+    try {
+      existing = JSON.parse(fs.readFileSync(credsJsonPath, 'utf8'));
+    } catch (e) {
+      console.error(`WARNUNG: ${credsJsonPath} ist unlesbar (${e?.message ?? e}) – Abbruch, keine Überschreibung.`);
+      process.exit(1);
+    }
   }
-  const p12Path = existing.ios?.distributionCertificate?.path || 'credentials/ios_distribution.p12';
-  const p12Password = existing.ios?.distributionCertificate?.password || '';
+  const existingDist = existing.ios?.distributionCertificate || {};
+  const p12Path = existingDist.path || 'credentials/ios_distribution.p12';
+  const p12Password = existingDist.password || '';
   writeSecretJson(credsJsonPath, {
     ...existing,
     ios: {
       ...(existing.ios || {}),
       provisioningProfilePath: 'credentials/ios_appstore.mobileprovision',
-      distributionCertificate: { path: p12Path, password: p12Password },
+      distributionCertificate: { ...existingDist, path: p12Path, password: p12Password },
     },
   });
 

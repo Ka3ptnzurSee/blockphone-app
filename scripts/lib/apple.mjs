@@ -60,6 +60,9 @@ export function createContext(projectDir) {
 
 // Schreibt JSON mit restriktiven Permissions (Private-Keys/Passwörter).
 export function writeSecretJson(filePath, data) {
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + '\n');
+  // Bestehende Datei vor dem Schreiben absichern (schließt TOCTOU-Fenster),
+  // neue Dateien direkt mit restriktiven Permissions anlegen.
+  if (fs.existsSync(filePath)) fs.chmodSync(filePath, 0o600);
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + '\n', { mode: 0o600 });
   fs.chmodSync(filePath, 0o600);
 }
