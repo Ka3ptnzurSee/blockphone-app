@@ -34,8 +34,19 @@ liegen jetzt in `assets/fonts/`:
 | `lettera_mono_ll_light.otf` | Lettera Mono LL Light | Lineto | Fließtext light |
 
 - **Dot-Matrix-Font** = NDot 57 (Punkt-Raster) für Ziffern/Uhr/Status.
-- **Fließtext** = Lettera Mono LL (NOT „NType" — das war eine falsche Annahme;
-  die Launcher-Version nutzt Lettera Mono von Lineto).
+- **Fließtext (Launcher, alt)** = Lettera Mono LL (Lineto).
+- **Fließtext (Nothing X, aktuell)** = **NType 82** (© Nothing, Colophon Foundry) — die
+  eigentliche Nothing-Text-Font. Die ursprüngliche „NType"-Annahme war DOCH korrekt;
+  nur die alte Launcher-APK (v1.0.2) nutzte Lettera Mono.
+- **UI-Sans (Nothing X)** = **Space Grotesk** (Bold/Medium/SemiBold, SIL OFL — frei nutzbar).
+- **Dot-Matrix** = Ndot 55 + Ndot 57 (je als „UpAndLow"-Variante mit Kleinbuchstaben).
+
+### ⚠️ Font-Lizenz
+- `NType82` + `Ndot` = **Nothing-exklusiv** („solely on Nothing brand materials", Colophon
+  Foundry) → NICHT für die Veröffentlichung einer eigenen App nutzbar, nur Research.
+- `Space Grotesk` = **SIL OFL** → frei, auch kommerziell — für die Blockphone-App geeignet.
+- `Lettera Mono LL` = Lineto (kommerziell lizenziert).
+
 - **Grundraster:** 4-px-Basis; Abstände 4/8/12/16/24/32/48. Viel Negativraum.
 
 ## 3. Glyph Interface — das Leucht-Motiv
@@ -70,7 +81,8 @@ liegen jetzt in `assets/fonts/`:
 - [x] **Nothing Launcher APK geladen + dekompiliert** (`apkeep` via APKPure → `apktool`)
   → `/opt/apps/nothing-re/decompiled/`, base `com.nothing.launcher.apk` (v1.0.2, targetSDK 31)
 - [x] **Fonts extrahiert** → `assets/fonts/` (ndot57, ndot, lettera_mono_ll_regular/light)
-- [ ] Nothing X IPA ziehen (neueste iOS-App, aktuellere Tokens — `ipatool` + Apple-ID)
+- [x] **Nothing X IPA gezogen** (v3.10.1, 253 MB, `ipatool` + 2FA-Login `--keychain-passphrase`)
+  → `/opt/apps/nothing-re/extracted-ios/` (Flutter-App `Runner.app`); Fonts → `assets/fonts/`
 - [ ] Farb-/Token-Palette als `theme.ts` übernehmen (monochrome Werte aus `colors.xml` liegen vor)
 - [ ] Glyph-Motiv als Komponente bauen (Skia/Reanimated)
 

@@ -235,8 +235,8 @@ export default function App() {
   const [fontsLoaded] = useFonts({
     Ndot57: require("./assets/fonts/ndot57.otf"),
     Ndot: require("./assets/fonts/ndot.otf"),
-    LetteraMono: require("./assets/fonts/lettera_mono_ll_regular.otf"),
-    LetteraLight: require("./assets/fonts/lettera_mono_ll_light.otf"),
+    SpaceGrotesk: require("./assets/fonts/SpaceGrotesk-Medium.ttf"),
+    SpaceGroteskBold: require("./assets/fonts/SpaceGrotesk-Bold.ttf"),
   });
 
   const [tab, setTab] = useState<"glyph" | "devices" | "server">("glyph");
@@ -507,7 +507,7 @@ const styles = StyleSheet.create({
     letterSpacing: 3,
   },
   headerSub: {
-    fontFamily: "LetteraMono",
+    fontFamily: "SpaceGrotesk",
     fontSize: 10,
     color: C.text3,
     letterSpacing: 4,
@@ -525,7 +525,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   tabText: {
-    fontFamily: "LetteraMono",
+    fontFamily: "SpaceGrotesk",
     fontSize: 12,
     color: C.text3,
     letterSpacing: 2,
@@ -552,14 +552,14 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   date: {
-    fontFamily: "LetteraMono",
+    fontFamily: "SpaceGrotesk",
     fontSize: 14,
     color: C.text2,
     letterSpacing: 1,
     textTransform: "uppercase",
   },
   hint: {
-    fontFamily: "LetteraMono",
+    fontFamily: "SpaceGrotesk",
     fontSize: 12,
     color: C.text3,
     letterSpacing: 1,
@@ -576,13 +576,13 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   error: {
-    fontFamily: "LetteraMono",
+    fontFamily: "SpaceGrotesk",
     fontSize: 12,
     color: "#ff5c6a",
     lineHeight: 18,
   },
   fieldLabel: {
-    fontFamily: "LetteraMono",
+    fontFamily: "SpaceGrotesk",
     fontSize: 11,
     color: C.text3,
     letterSpacing: 2,
@@ -597,7 +597,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: C.text,
     backgroundColor: C.surface,
-    fontFamily: "LetteraMono",
+    fontFamily: "SpaceGrotesk",
   },
   deviceCard: {
     flexDirection: "row",
@@ -611,7 +611,7 @@ const styles = StyleSheet.create({
   },
   deviceInfo: { flex: 1 },
   deviceName: {
-    fontFamily: "LetteraMono",
+    fontFamily: "SpaceGrotesk",
     fontSize: 15,
     color: C.text,
   },
@@ -628,7 +628,7 @@ const styles = StyleSheet.create({
   },
   stateDot: { width: 8, height: 8, borderRadius: 4 },
   stateText: {
-    fontFamily: "LetteraMono",
+    fontFamily: "SpaceGrotesk",
     fontSize: 9,
     letterSpacing: 1,
   },
@@ -646,7 +646,7 @@ const styles = StyleSheet.create({
     backgroundColor: C.dot,
   },
   toggleText: {
-    fontFamily: "LetteraMono",
+    fontFamily: "SpaceGrotesk",
     fontSize: 11,
     color: C.text,
     letterSpacing: 1,
@@ -659,7 +659,7 @@ const styles = StyleSheet.create({
     marginTop: 18,
   },
   saveBtnText: {
-    fontFamily: "LetteraMono",
+    fontFamily: "SpaceGrotesk",
     fontSize: 13,
     color: C.bg,
     letterSpacing: 2,
