@@ -17,7 +17,7 @@
           "NSAllowsLocalNetworking": true
         }
       },
-      "buildNumber": "102"
+      "buildNumber": "103"
     },
     "android": {
       "package": "com.meister.blockphone",
@@ -39,9 +39,9 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "74e49a11-9b0c-44a8-a9e9-f786efb18325"
+        "projectId": "12784118-443e-4ec7-a47c-45c457192b6a"
       }
     },
-    "owner": "per2004"
+    "owner": "kittycat69"
   }
 }
