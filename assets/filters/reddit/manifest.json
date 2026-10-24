@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "version": "2.1.2",
+  "lastUpdated": "2026-10-09",
+  "platform": "reddit",
+  "displayName": "Reddit",
+  "baseURL": "https://www.reddit.com",
+  "selectors": {
+    "static": [
+      { "selector": "shreddit-ad-post", "purpose": "Promoted post web component" },
+      { "selector": "shreddit-sidebar-ad", "purpose": "Sidebar ad component" },
+      { "selector": "shreddit-comments-page-ad", "purpose": "Comments page ad component" },
+      { "selector": "shreddit-comment-tree-ad", "purpose": "Comment tree ad component" },
+      { "selector": "shreddit-dynamic-ad-link", "purpose": "Dynamic ad links" },
+      { "selector": "shreddit-brand-affiliate-tag", "purpose": "Affiliate tags" },
+      { "selector": "shreddit-async-loader[bundlename=\"sidebar_ad\"]", "purpose": "Sidebar ad async loader" },
+      { "selector": "shreddit-async-loader[bundlename=\"feed_announcement\"]", "purpose": "Feed announcement loader" },
+      { "selector": "community-highlight-carousel", "purpose": "Community highlight engagement carousel" },
+      { "selector": "shreddit-experience-tree", "purpose": "Experience/promo overlays" },
+      { "selector": "left-nav-top-section", "purpose": "Left nav with Popular/Explore links" },
+      { "selector": "div[id*=\"_xpromo_nsfw_blocking_\"]", "purpose": "Server-rendered app wall" }
+    ],
+    "healthCheck": ["shreddit-post", "article", "shreddit-feed"]
+  },
+  "blockedURLPatterns": [],
+  "notes": "FRAGILITY: Low-Medium. Reddit uses Lit web components with shreddit- prefix — more stable than class names. Ads use shreddit-ad-post. Recommended posts identified by recommendation-subreddit-name attribute or shreddit-join-button presence. Watch feed is app-only (not on mobile web). v2.1.0 (2026-08-19): infinite-scroll mutations are queued and filtered within their newly added article/subtree. The initial load and SPA route changes still receive a full-document pass, while typing defers queued work until focus leaves the editor. v2.1.1 ignores hidden, pre-mounted login dialogs when deciding whether to defer the queue, preventing lazy content from remaining unprocessed after Reddit keeps an inactive auth surface in the DOM. v2.1.2 (2026-10-09) ports upstream list changes: Explore and News page types and nav links join Popular/All (redirect to Home on /explore and /news), the discovery_unit \"more posts\" tracker joins suggested (BevizLaszlo/UBlock-Filters-for-Social-Media), and the server-rendered NSFW app wall plus the inline View in app prompt are hidden always-on (uBO uAssets annoyances-others.txt)."
+}

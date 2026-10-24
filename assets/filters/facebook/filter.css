@@ -1,0 +1,107 @@
+/* === Facebook Mobile Content Filter CSS === */
+
+/* Dull-owned reversible marker for virtualized Home feed slots. Facebook
+   rewrites a slot's inline style while scrolling, so persistence belongs in
+   CSS; filter.js removes the marker when that same slot becomes followed
+   content again. */
+[data-dull-facebook-feed-reasons] {
+  display: none !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  max-height: 0 !important;
+  overflow: hidden !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: 0 !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* DULL_GROUP_START:reels */
+/* Reels/Watch in feed via data-pagelet */
+div[data-pagelet*="Reel"],
+div[data-pagelet*="reel"],
+div[data-pagelet="VideoChastityControlledMediaChainingFeed"],
+div[data-pagelet^="FeedUnit"]:has(a[href*="/reel/"]) { display: none !important; }
+
+/* Reels via semantic aria-labels. Avoid a generic `*="reel"` match: it also
+   hides ordinary content such as Marketplace listings for fishing reels. */
+div[aria-label="Reels" i],
+div[aria-label="Reel" i],
+div[aria-label="Reels tray" i],
+div[aria-label="Short videos" i],
+div[aria-label^="Reels player" i],
+div[aria-label^="Suggested reels" i],
+div[aria-label^="More reels" i],
+div[aria-label^="Related reels" i],
+div[aria-label^="Open reel" i],
+div[aria-label^="Watch reel" i],
+[aria-label="Reel tile preview" i] { display: none !important; }
+
+/* Facebook WebLite renders header tabs in compositor-backed slots. Removing
+   its ordinal Reels node can leave the old gray slot rasterized. Keep a
+   non-interactive shell and paint it with the enclosing screen theme. */
+[data-dull-weblite-reels-mask] {
+  position: relative !important;
+  overflow: hidden !important;
+  pointer-events: none !important;
+  color: transparent !important;
+  background: var(--dull-facebook-tab-background, #fff) !important;
+}
+[data-dull-weblite-reels-mask] > * {
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+[data-dull-weblite-reels-mask]::after {
+  content: "" !important;
+  position: absolute !important;
+  inset: 0 !important;
+  z-index: 2147483647 !important;
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  background: var(--dull-facebook-tab-background, #fff) !important;
+  pointer-events: none !important;
+}
+
+/* Watch/Reels links in navigation (scoped to avoid hiding in-post links) */
+:is(nav, div[role="navigation"], div[role="tablist"], div[role="banner"]) :is(a[href*="/watch"], a[href*="/reel"], a[href*="sk=watch"], a[href*="sk=video"]),
+:is(nav, div[role="navigation"], div[role="tablist"], div[role="banner"])
+  :is(a, [role="tab"]):is([aria-label="Video" i], [aria-label="Videos" i], [aria-label="Watch" i], [aria-label="Reels & Watch" i], [aria-label="Reels and Watch" i]),
+:is(nav, div[role="navigation"], div[role="tablist"], div[role="banner"])
+  :is(a, [role="tab"]):has(:is([aria-label="Video" i], [aria-label="Videos" i], [aria-label="Watch" i], [aria-label="Reels & Watch" i], [aria-label="Reels and Watch" i])) { display: none !important; }
+
+/* Collapse articles containing Facebook watch/reel links */
+div[role="article"]:has(a[href*="/watch/"][href*="facebook.com"]),
+div[role="article"]:has(a[href^="/watch/"]),
+div[role="article"]:has(a[href*="/reel/"]) { height: 0 !important; min-height: 0 !important; overflow: hidden !important; padding: 0 !important; margin: 0 !important; visibility: hidden !important; opacity: 0 !important; }
+
+/* Mobile-specific Reels container */
+div[data-mcomponent="MContainer"]:has(a[href*="/reel"]) { display: none !important; }
+
+/* Watch/Reel tabs in bottom nav — always removed regardless of bottomNav setting */
+div[role="tablist"] > div:has(a[href*="/watch"]),
+div[role="tablist"] > div:has(a[href*="/reel"]) { display: none !important; }
+/* DULL_GROUP_END:reels */
+
+/* DULL_GROUP_START:bottomNav */
+/* Hide entire bottom navigation bar */
+div[role="tablist"] { display: none !important; }
+body { padding-bottom: 0 !important; }
+/* DULL_GROUP_END:bottomNav */
+
+/* App banners and promo (always on — functional, not content filtering) */
+[data-sigil="m-promo-jewel"],
+[data-sigil="app_banner"],
+[data-sigil="m-promo"],
+._5hn6 { display: none !important; }
+
+/* Modern m.facebook.com Tahoe-era app-promo wrapper. Scoped to the sibling-of-pull-
+   to-refresh structure to avoid catching legit fixed-bottom containers (per AdGuard
+   AnnoyancesFilter/MobileApp/sections/mobile-app_specific.txt, 2026-05-04). */
+div[data-status-bar-color]:not(.vscroller) > div[data-is-pull-to-refresh-allowed="true"] + div[data-mcomponent="MContainer"].fixed-container.bottom { display: none !important; }
+
+/* Inline app-install card embedded in feed (167px-tall MContainer). */
+div[data-type="vscroller"] > div[data-mcomponent="MContainer"][data-tti-phase][style*="height:167px"] { display: none !important; }

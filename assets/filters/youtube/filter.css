@@ -1,0 +1,116 @@
+/* === YouTube Mobile Content Filter CSS === */
+
+/* DULL_GROUP_START:shorts */
+/* Shorts shelf/reel renderers — ytm-reel-shelf-renderer covers .item subclass too */
+ytm-reel-shelf-renderer,
+ytm-shorts-lockup-view-model,
+ytm-shorts-lockup-view-model-v2,
+ytm-reel-item-renderer,
+ytm-rich-section-renderer:has(ytm-reel-shelf-renderer):not(:has(a[href*="/watch?"])) { display: none !important; }
+
+/* Home-feed Shorts sections that hold lockups directly, without a reel shelf.
+   Hiding only the lockups left the section header and an empty gap behind.
+   Ported from gijsdev/ublock-hide-yt-shorts (2026-04), which uses
+   ytm-shorts-lockup-view-model:upward(ytm-rich-section-renderer). */
+ytm-rich-section-renderer:has(ytm-shorts-lockup-view-model):not(:has(a[href*="/watch?"])),
+ytm-rich-section-renderer:has(ytm-shorts-lockup-view-model-v2):not(:has(a[href*="/watch?"])) { display: none !important; }
+
+/* Shorts filter chip on Home and Search. filter.js also matches the chip's
+   visible text; the aria-label hides it before first paint.
+   From gijsdev/ublock-hide-yt-shorts (2026-04). */
+ytm-chip-cloud-chip-renderer:has([aria-label="Shorts"]) { display: none !important; }
+
+/* Shorts pivot bar tab */
+ytm-pivot-bar-item-renderer:has(.pivot-shorts),
+ytm-pivot-bar-item-renderer:has(a[href*="/shorts"]) { display: none !important; }
+
+/* Shorts video containers (data-style and link-based) — use visibility+height collapse instead of display:none to avoid triggering infinite scroll refills */
+ytm-video-with-context-renderer:has([data-style="SHORTS"]),
+ytm-rich-item-renderer:has([data-style="SHORTS"]),
+ytm-video-with-context-renderer:has(a[href*="/shorts/"]),
+ytm-rich-item-renderer:has(a[href*="/shorts/"]),
+ytm-compact-video-renderer:has(a[href*="/shorts/"]),
+ytm-grid-video-renderer:has(a[href*="/shorts/"]),
+ytm-video-renderer:has(a[href*="/shorts/"]) { display: none !important; }
+
+/* Search result Shorts shelves — only hide dedicated Shorts shelves, not mixed sections */
+grid-shelf-view-model:has(ytm-shorts-lockup-view-model):not(:has(a[href*="/watch?"])),
+grid-shelf-view-model:has(ytm-shorts-lockup-view-model-v2):not(:has(a[href*="/watch?"])) { display: none !important; }
+
+/* Shorts tab and navigation */
+yt-tab-shape[tab-title="Shorts"],
+.single-column-browse-results-tabs a[href*="shorts"] { display: none !important; }
+
+/* Notification Shorts */
+ytm-notification-renderer:has(a[href*="/shorts/"]) { display: none !important; }
+/* DULL_GROUP_END:shorts */
+
+/* DULL_GROUP_START:watchRecommendations */
+/* Watch page only: hide the recommendations rail. Inside ytm-single-column-watch-next-results-renderer
+   the comments teaser and the rec rail are both ytm-item-section-renderer siblings — :has() picks out
+   the one that contains video tiles so the comments teaser stays visible. */
+ytm-single-column-watch-next-results-renderer ytm-item-section-renderer:has(ytm-video-with-context-renderer),
+ytm-single-column-watch-next-results-renderer > ytm-continuation-item-renderer { display: none !important; }
+/* DULL_GROUP_END:watchRecommendations */
+
+/* DULL_GROUP_START:bottomNav */
+/* Hide entire bottom navigation bar */
+ytm-pivot-bar-renderer { display: none !important; }
+/* DULL_GROUP_END:bottomNav */
+
+/* DULL_GROUP_START:ads */
+/* Ad UI cosmetic backstop. Primary defense is JS pruning of playerResponse in filter.js;
+   these rules just hide any leftover surfaces (player overlay, banner ads, promoted
+   renderers) if a request slipped past or rendered before the prune. Mobile uses ytm-* prefixes;
+   the HTML5 player itself reuses desktop's .ytp-* classes on mobile too.
+
+   The skip button is deliberately NOT hidden. Hiding it only makes sense while
+   Dull reliably removes the ad itself, and when one slips through it is the
+   viewer's only way out. Hiding it turned a skippable ad into an unskippable
+   silent one, which is exactly what users reported in September 2026.
+   filter.js clicks it automatically; leaving it on screen costs nothing when
+   that works and rescues the viewer when it does not. */
+.ytp-ad-player-overlay,
+.ytp-ad-player-overlay-layout,
+.ytp-ad-module,
+.ytp-ad-image-overlay,
+.ytp-ad-text-overlay,
+.ytp-ad-overlay-container,
+ytm-promoted-sparkles-web-renderer,
+ytm-companion-ad-renderer,
+ytm-promoted-video-renderer,
+ytm-compact-promoted-video-renderer,
+ytm-rich-item-renderer:has(ytm-promoted-sparkles-web-renderer),
+ytm-rich-item-renderer:has(ytm-promoted-video-renderer),
+ytm-rich-item-renderer:has(ytm-compact-promoted-video-renderer),
+ytm-item-section-renderer:has(ytm-promoted-sparkles-web-renderer):not(:has(a[href*="/watch?"])),
+/* Watch-feed ad slot. filter.js removes adSlotRenderer entries from the
+   /next and /get_watch responses (uBO uAssets filters.txt, m.youtube.com
+   json-edit-fetch-response rule); this is the cosmetic backstop. */
+ytm-ad-slot-renderer,
+ytm-rich-item-renderer:has(ytm-ad-slot-renderer),
+ytd-ad-slot-renderer,
+ytd-display-ad-renderer,
+ytd-statement-banner-renderer { display: none !important; }
+/* DULL_GROUP_END:ads */
+
+/* DULL_GROUP_START:subscriptionsLockdown */
+/* Path-scoped: filter.js adds body.dull-subs-lockdown only on /feed/subscriptions when this group is on.
+   Hides the top bar (logo + search + cast + account) and any "recommended channels" rails injected
+   into the subs feed. The user's own channel chip strip (subscribed channels) is left visible —
+   that's their subs, not recommendations. */
+body.dull-subs-lockdown ytm-mobile-topbar-renderer,
+body.dull-subs-lockdown ytm-rich-section-renderer:has(ytm-channel-renderer),
+body.dull-subs-lockdown ytm-rich-section-renderer:has(ytm-channel-featured-input-renderer),
+body.dull-subs-lockdown ytm-shelf-renderer:has(ytm-channel-renderer):not(:has(ytm-video-with-context-renderer)) { display: none !important; }
+/* DULL_GROUP_END:subscriptionsLockdown */
+
+/* App banners and UI cleanup (always on — functional, not content filtering) */
+.ytm-autonav-bar,
+c3-toast,
+.companion-ad-container,
+ytm-mealbar-renderer,
+ytm-mealbar.mealbar-promo-renderer,
+#mealbar\:3,
+ytm-open-in-app-prompt-renderer,
+ytd-popup-container > .ytd-popup-container > #contentWrapper > .ytd-popup-container[position-type="OPEN_POPUP_POSITION_BOTTOMLEFT"] { display: none !important; }

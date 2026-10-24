@@ -1,0 +1,182 @@
+/* === Instagram Content Filter CSS === */
+
+/* DULL_GROUP_START:reels */
+/* Reels tab in bottom navigation — a[href*="/reels"] subsumes a[href="/reels/"] */
+a[href*="/reels"] { display: none !important; }
+
+/* Reels tab via role-based selectors */
+div[role="tablist"] > div:has(a[href*="/reels"]),
+div[role="tablist"] > div:has(svg[aria-label="Reels"]) { display: none !important; }
+
+/* Reels in feed — collapse to preserve infinite scroll. Not on a single-post
+   route (/reel/<id>/, /p/<id>/): filter.js marks those on <html>, because the
+   shared-reel "Post" page is itself an <article> full of /reel/ links and
+   collapsing it left the whole page black. */
+html:not([data-dull-single-post]) article:has(a[href*="/reel/"]) { height: 0 !important; min-height: 0 !important; overflow: hidden !important; padding: 0 !important; margin: 0 !important; border: 0 !important; visibility: hidden !important; opacity: 0 !important; }
+
+/* Reels section headers in feed */
+main section:has(h2):has(a[href*="/reels/"]) { display: none !important; }
+
+/* Reels button elements and SVG icons */
+div[role="button"]:has(svg[aria-label="Reels"]),
+div[role="button"][aria-label*="Reels"],
+a[role="tab"][href$="/reels/"],
+div[aria-label="Reels"],
+svg[aria-label="Reels"],
+svg[aria-label="Reel"],
+a[href*="/reel/"]:has(svg[aria-label="Reel"]) { display: none !important; }
+/* DULL_GROUP_END:reels */
+
+/* DULL_GROUP_START:explore */
+/* The magnifier tab (a[href="/explore/"]) is Instagram's only search entry
+   point on mobile web, so it stays visible. filter.js sends a tap on it, and
+   any arrival on bare /explore/, to /explore/search/ (search field, no grid).
+   While that redirect is in flight the grid must not paint. */
+html[data-dull-bare-explore] main { visibility: hidden !important; }
+/* DULL_GROUP_END:explore */
+
+/* DULL_GROUP_START:threads */
+/* Threads promotion banners — a[href*="threads.net"] subsumes exact URL */
+a[href*="threads.net"],
+a[href*="threads.com"],
+div[role="button"][aria-label*="Threads"],
+a[aria-label*="Threads"] { display: none !important; }
+/* DULL_GROUP_END:threads */
+
+/* DULL_GROUP_START:bottomNav */
+/* Hide bottom navigation bar — multiple selector strategies for Instagram's evolving DOM */
+body > div > nav,
+body > div > div > nav,
+div[role="tablist"],
+nav:has(div[role="tablist"]),
+nav:has(a[href="/"]):has(a[href="/explore/"]),
+nav[style*="position: fixed"][style*="bottom"],
+nav[style*="position: sticky"][style*="bottom"],
+/* Instagram 2025+ mobile nav: fixed bar at bottom with home/DM/threads links */
+div[style*="position: fixed"][style*="bottom"]:has(a[href="/"]):has(a[href="/direct/"]),
+div:has(> a[href="/"]):has(> a[href="/direct/"]):has(> a[href*="threads"]) { display: none !important; }
+body { padding-bottom: 0 !important; }
+/* DULL_GROUP_END:bottomNav */
+
+/* DULL_GROUP_START:stories */
+/* Stories tray on the home feed. As of May 2026 IG no longer wraps each avatar
+   in <a href="/stories/...">; each tile is now <div role="button"
+   aria-label="Story by <user>, <state>"> with a <canvas> for the ring, and
+   "Your story" is its own role=button (no aria-label) sharing the horizontal
+   scroller. The first match below targets the scrollbox (grandparent of the
+   story button); the second targets the wrapper one level higher
+   (great-grandparent), because IG hard-codes height: 124px on a class on that
+   wrapper (e.g. .x1njnjl6) — without hiding it too, the scrollbox collapses
+   but a 124px empty band remains above the feed. Above that wrapper the
+   chain is single-child empty-class divs that collapse on their own once the
+   124px wrapper is gone. The `>` direct-child operators stop the selectors
+   from also matching every div up the tree. The story viewer itself
+   (/stories/<user>/) has no Story-by buttons, so this is path-safe.
+   Friends-Only story compose (html[data-dull-story-compose], see the
+   friendsOnly group) needs the tray's "Your story" tile, so it stands down
+   there; filter.js hides the other people's tiles individually instead. */
+html:not([data-dull-story-compose]) div:has(> div > div[role="button"]:is([aria-label^="Story by " i], [aria-label^="Historia de " i], [aria-label^="Story von " i], [aria-label^="Geschichte von " i])),
+html:not([data-dull-story-compose]) div:has(> div > div > div[role="button"]:is([aria-label^="Story by " i], [aria-label^="Historia de " i], [aria-label^="Story von " i], [aria-label^="Geschichte von " i])) { display: none !important; }
+/* DULL_GROUP_END:stories */
+
+/* DULL_GROUP_START:messagesOnly */
+/* Messages-only mode — hide feed and non-DM elements when on /direct/ pages.
+   JS handles redirect; CSS handles visual cleanup. */
+/* DULL_GROUP_END:messagesOnly */
+
+/* DULL_GROUP_START:friendsOnly */
+/* Friends-Only Mode — locks the feed to Following (chronological, accounts you
+   follow). The home feed pill at top-left ("For you" / "Following" / "Favorites")
+   contains a [role="button"][aria-haspopup="menu"]. After redirect to
+   /?variant=following Instagram swaps that pill for a Back arrow that returns to
+   For You. Hide both. JS in filter.js handles the actual /?variant=following
+   redirect on initial load and SPA navigation. */
+h1:has([aria-haspopup="menu"]),
+h1:has(a[href="/"] svg[aria-label="Back"]) { display: none !important; }
+
+/* Story compose. Instagram's Following variant renders no stories tray, and
+   the tray's "Your story" tile is where the mobile website starts a new
+   story, so Friends-Only used to remove story posting entirely. filter.js
+   puts an "add to your story" button on Following; it loads Home with
+   <html data-dull-story-compose> (set at document start, before first
+   paint) and this block hides every pixel of that page except the stories
+   tray, Instagram's own dialogs and full-screen overlays (the composer), and
+   Dull's bar. visibility rather than display: a visible descendant of a
+   hidden ancestor still paints and still takes taps, so the tray works
+   without Dull knowing anything about the layout around it. The feed is
+   present in the DOM but never visible or tappable, and the page cannot
+   scroll. */
+html[data-dull-story-compose],
+html[data-dull-story-compose] body { overflow: hidden !important; }
+html[data-dull-story-compose] body { visibility: hidden !important; }
+html[data-dull-story-compose] [data-dull-story-tray],
+html[data-dull-story-compose] [data-dull-story-overlay],
+html[data-dull-story-compose] #dull-story-compose-bar { visibility: visible !important; }
+html[data-dull-story-compose] [data-dull-story-friend] { display: none !important; }
+
+#dull-story-compose-bar {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+  z-index: 2147483646;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 12px 12px 16px;
+  border-radius: 14px;
+  background: #262626;
+  color: #fff;
+  font: 400 14px/1.35 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+}
+#dull-story-compose-bar[hidden] { display: none !important; }
+#dull-story-compose-bar span { flex: 1 1 auto; }
+#dull-story-compose-bar button,
+#dull-story-compose-entry {
+  -webkit-appearance: none;
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+  font: 600 14px -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+#dull-story-compose-bar button {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border-radius: 9px;
+  background: #fff;
+  color: #000;
+}
+#dull-story-compose-entry {
+  display: block;
+  margin: 8px 16px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: #efefef;
+  color: #000;
+  text-align: center;
+}
+@media (prefers-color-scheme: dark) {
+  #dull-story-compose-bar { background: #efefef; color: #000; }
+  #dull-story-compose-bar button { background: #000; color: #fff; }
+  #dull-story-compose-entry { background: #262626; color: #f5f5f5; }
+}
+
+/* DULL_GROUP_END:friendsOnly */
+
+/* Elements filter.js collapsed. Inline styles do the work; this keeps them
+   collapsed if Instagram's React re-render rewrites the inline style. */
+[data-dull-collapsed] { height: 0 !important; min-height: 0 !important; max-height: 0 !important; overflow: hidden !important; padding: 0 !important; margin: 0 !important; border: 0 !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }
+
+/* Open in App banners and login walls (always on — functional, not content filtering) */
+/* NOTE: Do NOT hide div[role="dialog"]:has(a[href*="/accounts/login"]) — it matches the actual login form */
+[role="presentation"]:has(a[href*="app-store"]),
+div:has(> a[href*="play.google.com"]):has(> a[href*="itunes.apple.com"]),
+div[role="dialog"]:has(button):has(img[alt*="App Store"]),
+div[role="dialog"]:has(button):has(img[alt*="Google Play"]),
+body > div[style*="position: fixed"]:has(a[href*="apps.apple.com"]),
+body > div[style*="position: fixed"]:has(a[href*="play.google.com"]),
+body > div[style*="position: fixed"]:has(a[href*="itunes.apple.com"]),
+div[style*="position: fixed"][style*="top: 0"]:has(a[href*="apps.apple.com"]),
+div[style*="position: fixed"][style*="top: 0"]:has(a[href*="play.google.com"]) { display: none !important; }

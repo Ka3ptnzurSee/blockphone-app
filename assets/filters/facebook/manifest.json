@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "version": "2.3.5",
+  "lastUpdated": "2026-10-09",
+  "platform": "facebook",
+  "displayName": "Facebook",
+  "baseURL": "https://m.facebook.com",
+  "selectors": {
+    "static": [
+      { "selector": "a[href*=\"/reel\"]", "purpose": "Reel links in navigation" },
+      { "selector": "[data-sigil=\"m-promo-jewel\"]", "purpose": "Promo jewel banner" },
+      { "selector": "[data-sigil=\"app_banner\"]", "purpose": "App install banner" },
+      { "selector": "[data-sigil=\"m-promo\"]", "purpose": "Generic promo wrapper (Tahoe)" },
+      { "selector": "._5hn6", "purpose": "Legacy promo overlay" }
+    ],
+    "healthCheck": ["a[href*=\"/reel\"]", "[data-pagelet]", "a[href*=\"/watch\"]"]
+  },
+  "blockedURLPatterns": ["/reel/", "/reels/", "/watch/", "/watch"],
+  "notes": "FRAGILITY: Medium. FeedUnit:has() CSS, tablist Reels tab hiding, and mobile-specific selectors remain best-effort. Explicit /reel/, /share/r/, and /watch routes remain blocked, while ordinary /share/v/, profile /videos/, and video.php posts stay usable. Route-less semantic Reel viewers are collapsed in place so the feed and scroll position are preserved. Feeds-Only Mode routes only the actual Home surface to Facebook's chronological followed-content view and preserves root-query post permalinks, Marketplace, notifications, messages, profiles, and listing details. Marketplace app prompts and sponsored cards/carousels are removed without collapsing organic listings. v2.3.4 (2026-08-26): reconciles Facebook's recycled Home feed slots in both directions, keeps Dull-owned CSS hiding active when WebLite rewrites inline styles, observes in-place Follow/Reel mutations and scroll reuse, ignores hidden pre-mounted login dialogs, and recognizes the Estonian Meediumiklipid shelf even when it exposes only an ordinary video route. v2.3.3 (2026-08-26): catches lazy localized video shelves whose stable Reel destination is wrapped by Facebook's l.php exit-link route, while preserving wrapped ordinary /share/v/ posts; fixture coverage reproduces the Estonian Meediumiklipid and Jälgi leak after load-more. v2.3.2 (2026-08-25): removes role-less Home ads independently of Feeds-only mode, catches localized role-less Reel shelves by stable media destinations, recognizes role-less Follow/Join header actions, and removes external advertiser cells inserted by Marketplace load-more without hiding the grid or organic /share/v content. v2.3.1 (2026-08-25): intercepts the live ordinal Messages tab at touch/pointer start before native Messenger handling; keeps Feeds-only filtering active after Facebook canonicalizes the chronological URL to bare Home; and removes explicit recommendation, Follow/Join, and feed-ad cards without matching body text or seller messaging. v2.3.0 (2026-08-22): fixes ordinary post/video taps being mistaken for Reels, prevents Feeds-only permalink refreshes, removes broad Suggested/Watch-permalink CSS hiding, and expands localized Marketplace sponsored-disclosure detection for nested grid markup. v2.3.5 (2026-10-09) extends FACEBOOK_AD_TEXT with the localized Sponsored labels uBO matches on m.facebook.com (uAssets filters-mobile.txt): Turkish, Polish, Indonesian, Czech, Slovak, Danish, Filipino, Croatian, Hungarian, Norwegian, Romanian, Finnish, Swedish, Vietnamese, Greek, Bulgarian, Macedonian, Serbian, Russian, Hebrew, Hindi, Bengali, Korean, Chinese and Japanese. Still exact-matched against a card-header text node."
+}

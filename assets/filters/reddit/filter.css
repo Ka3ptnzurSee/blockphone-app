@@ -1,0 +1,92 @@
+/* === Reddit Content Filter CSS === */
+
+/* DULL_GROUP_START:ads */
+/* Promoted posts and ad components (shreddit- web components) */
+shreddit-ad-post { display: none !important; }
+shreddit-sidebar-ad { display: none !important; }
+shreddit-comments-page-ad { display: none !important; }
+shreddit-comment-tree-ad { display: none !important; }
+shreddit-dynamic-ad-link { display: none !important; }
+shreddit-brand-affiliate-tag { display: none !important; }
+shreddit-async-loader[bundlename="sidebar_ad"] { display: none !important; }
+shreddit-async-loader[bundlename="feed_announcement"] { display: none !important; }
+div[data-before-content="advertisement"] { display: none !important; }
+.promotedlink { display: none !important; }
+/* DULL_GROUP_END:ads */
+
+/* DULL_GROUP_START:videoFeed */
+/* Reddit Watch is app-only but hide any web video feed nav that may appear */
+a[href="/watch"],
+a[href="/watch/"] { display: none !important; }
+/* DULL_GROUP_END:videoFeed */
+
+/* DULL_GROUP_START:popular */
+/* Popular and All algorithmic feed tabs and navigation */
+left-nav-top-section { display: none !important; }
+a[href="/r/popular/"],
+a[href="/r/popular"],
+a[href="/r/all/"],
+a[href="/r/all"],
+a[href="/explore/"],
+a[href="/explore"],
+a[href="/news/"],
+a[href="/news"] { display: none !important; }
+/* Hide feed content when on Popular/All/Explore/News pages (JS handles redirect).
+   explore and news page types from BevizLaszlo/UBlock-Filters-for-Social-Media (2026). */
+shreddit-app[pagetype="popular"] .main-container,
+shreddit-app[pagetype="all"] .main-container,
+shreddit-app[pagetype="explore"] #main-content,
+shreddit-app[pagetype="news"] #main-content { display: none !important; }
+/* DULL_GROUP_END:popular */
+
+/* DULL_GROUP_START:suggested */
+/* Recommended posts (injected by algorithm — identified by attributes) */
+article:has(shreddit-post[recommendation-subreddit-name]),
+article:has(shreddit-post[recommendation-source]) { display: none !important; }
+/* Posts from unjoined subreddits — only when also marked as recommendation (avoids hiding all posts for guests) */
+article:has(shreddit-join-button):has(shreddit-post[recommendation-source]) { display: none !important; }
+/* Community highlights and engagement bait */
+community-highlight-carousel { display: none !important; }
+recent-posts { display: none !important; }
+/* Popular communities sidebar */
+[aria-label="Popular Communities"] { display: none !important; }
+/* Topics discovery */
+faceplate-expandable-section-helper:has(#TOPICS) { display: none !important; }
+/* "More posts you may like" discovery unit beside or below a post.
+   From BevizLaszlo/UBlock-Filters-for-Social-Media (2026). */
+faceplate-tracker[noun="discovery_unit"] { display: none !important; }
+/* Chat recommendations */
+chat-channel-recommendations-wrapper { display: none !important; }
+/* Games section in sidebar */
+faceplate-tracker[noun="games_drawer"] { display: none !important; }
+/* Async loaders for recommendations */
+shreddit-async-loader[bundlename="community_recs"],
+shreddit-async-loader[bundlename="onboarding_recs"],
+shreddit-async-loader[bundlename="trending_carousel"] { display: none !important; }
+/* DULL_GROUP_END:suggested */
+
+/* DULL_GROUP_START:bottomNav */
+/* Mobile bottom navigation bar */
+nav[role="navigation"],
+div[role="navigation"]:has(a[href="/"]) { display: none !important; }
+body { padding-bottom: 0 !important; }
+/* DULL_GROUP_END:bottomNav */
+
+/* Open in App banners and experience overlays (always on — functional, not content filtering) */
+shreddit-experience-tree { display: none !important; }
+/* NOTE: Do NOT hide #bottom-sheet via CSS — Reddit uses it for login. JS handles app-promo sheets selectively. */
+header nav > div > span:has(#get-app) { display: none !important; }
+/* NOTE: Do NOT hide bundlename="bottom_sheet" — Reddit uses it for login. JS handles selectively. */
+shreddit-async-loader[bundlename="xpromo_nsfw_blocking_modal"] { display: none !important; }
+/* Server-rendered variant of the same app wall, and the inline "View in app"
+   prompt. From uBO uAssets annoyances-others.txt. */
+div[id*="_xpromo_nsfw_blocking_"],
+div.prompt:has(slot[name="view-in-app-button"]) { display: none !important; }
+div[role="dialog"]:has(a[href*="app.link"]),
+div[role="banner"]:has(a[href*="play.google.com"]),
+div[role="banner"]:has(a[href*="apps.apple.com"]) { display: none !important; }
+/* "View in Reddit App" sticky bottom bar */
+xpromo-app-selector,
+shreddit-async-loader[bundlename="xpromo_bottom_bar"],
+div[style*="position: fixed"][style*="bottom"]:has(a[href*="app.link"]),
+div[style*="position: sticky"][style*="bottom"]:has(a[href*="app.link"]) { display: none !important; }

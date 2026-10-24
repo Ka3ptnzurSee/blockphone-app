@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "version": "2.3.4",
+  "lastUpdated": "2026-10-09",
+  "platform": "youtube",
+  "displayName": "YouTube",
+  "baseURL": "https://m.youtube.com",
+  "selectors": {
+    "static": [
+      { "selector": "ytm-reel-shelf-renderer", "purpose": "Shorts shelf renderer" },
+      { "selector": "ytm-shorts-lockup-view-model", "purpose": "Shorts lockup v1" },
+      { "selector": "ytm-shorts-lockup-view-model-v2", "purpose": "Shorts lockup v2" },
+      { "selector": "ytm-reel-item-renderer", "purpose": "Individual reel item" },
+      { "selector": ".ytm-autonav-bar", "purpose": "Autoplay bar cleanup" },
+      { "selector": ".companion-ad-container", "purpose": "Companion ad container" },
+      { "selector": "c3-toast", "purpose": "Toast notifications" },
+      { "selector": "ytm-mealbar-renderer", "purpose": "Get the App mealbar banner" },
+      { "selector": "ytm-open-in-app-prompt-renderer", "purpose": "Open in App prompt" }
+    ],
+    "healthCheck": ["ytm-reel-shelf-renderer", "a[href*=\"/shorts/\"]", "[data-style=\"SHORTS\"]"]
+  },
+  "blockedURLPatterns": ["/shorts/", "/shorts"],
+  "notes": "FRAGILITY: Low. Individual renderer hiding via a[href*='/shorts/'] and [data-style=SHORTS]. Section/shelf-level rules guarded with :not(:has(a[href*='/watch?'])) to avoid hiding mixed sections. Watch-page recommendations group keys off ytm-item-section-renderer:has(ytm-video-with-context-renderer) inside ytm-single-column-watch-next-results-renderer — :has() splits the rec rail from the comments-teaser section that lives in the same parent. subscriptionsLockdown is path-scoped: filter.js toggles body.dull-subs-lockdown on /feed/subscriptions, CSS rules hang off that class. Hides ytm-mobile-topbar-renderer (logo+search+account) plus channel-recommendation rails. Subscribed-channel chip strip stays visible — it's the user's own subs, not algorithmic. ADS group (v2.3.0+): JS prunes playerResponse.{adPlacements,playerAds,adSlots} via a setter trap on ytInitialPlayerResponse plus a fetch Proxy on /youtubei/v1/{player,next} and /reel_watch_sequence — adapted from uBO's json-prune scriptlets. CSS rules are cosmetic backstop only. URL-level blocking is not used: googlevideo.com serves video and ads from the same CDN. v2.3.1 observes both removal and class-state mutations so the cosmetic fallback restores content audio after YouTube removes or reclassifies its ad overlay, while preserving an existing user mute. v2.3.2 treats Dull's temporary ad mute as an ownership lease that is surrendered after a user mute change, and limits class observation work to actual ad-overlay transitions. v2.3.3 ends an ad break instead of only muting it: the handler keys off the player's own ad-showing/ad-interrupting classes (the ad overlay cannot serve as that signal because Dull's own CSS hides it), clicks a live skip button, and otherwise seeks the ad video to its end, retrying on a short bounded timer while the player still reports an ad. The skip button is deliberately no longer hidden by CSS: hiding it while an ad slipped through left viewers with a silent, unskippable ad and no indication of what was happening, which is what was reported on 2026-09-10. Class observation now also covers ad-showing/ad-interrupting and the skip-button slot, because YouTube reveals a skip control by reclassing that slot rather than the overlay. Default-on. Maintenance: when an ad slips through, check the ad keys YouTube added to playerResponse via Safari Web Inspector → extend stripAdsFromPlayerResponse(). Watch uBO uAssets issues filtered for 'youtube.com: ads' for upstream signals. v2.3.4 (2026-10-09) ports upstream list changes: Shorts sections that hold lockups without a reel shelf, and the Shorts chip by aria-label (gijsdev/ublock-hide-yt-shorts 2026-04); /youtubei/v1/get_watch is now treated as ad-bearing, array responses are pruned per element, and adSlotRenderer entries are removed from itemSectionRenderer contents in /next and /get_watch (uBO uAssets m.youtube.com json-edit-fetch-response), with ytm-ad-slot-renderer as the CSS backstop."
+}

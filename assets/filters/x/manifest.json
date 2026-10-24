@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "version": "2.0.2",
+  "lastUpdated": "2026-10-09",
+  "platform": "x",
+  "displayName": "X (Twitter)",
+  "baseURL": "https://x.com",
+  "selectors": {
+    "static": [
+      { "selector": "[data-testid=\"placementTracking\"]", "purpose": "Ad placement tracking pixel" },
+      { "selector": "[data-testid=\"top-impression-pixel\"]", "purpose": "Ad impression pixel" },
+      { "selector": "[data-testid=\"BottomBar\"]", "purpose": "App install bottom bar" },
+      { "selector": "[data-testid=\"app-bar-close\"]", "purpose": "App bar close button" },
+      { "selector": "[data-testid=\"eventHero\"]", "purpose": "Promoted event hero" },
+      { "selector": "[data-testid=\"trend\"]", "purpose": "Trending topic item" },
+      { "selector": "a[href=\"/i/grok\"]", "purpose": "Grok nav link" },
+      { "selector": "[data-testid=\"grokInPost\"]", "purpose": "Grok in-post element" },
+      { "selector": "[data-testid=\"grok_compose\"]", "purpose": "Grok compose button" },
+      { "selector": "[data-testid=\"GrokDrawer\"]", "purpose": "Grok drawer" },
+      { "selector": "a[href*=\"premium_sign_up\"]", "purpose": "Premium upsell link" }
+    ],
+    "healthCheck": ["[data-testid=\"top-impression-pixel\"]", "[data-testid=\"BottomBar\"]", "article"]
+  },
+  "blockedURLPatterns": [],
+  "notes": "FRAGILITY: Low-Medium. top-impression-pixel for ads, inline Who to follow/Suggested hiding, Grok removal, Premium upsell hiding. v2.0.1 preserves X's functional sheetDialog/bottomSheet overflow and Share menus, while JavaScript removes only sheets with explicit app-install or account-wall evidence. For You → Following is handled dynamically in filter.js: a `<style id=\"dull-x-home-foryou\">` element is injected only while on `/` or `/home` (and removed on navigation away), hiding `div[role=\"tablist\"] > div:first-child`. Do NOT add that selector back as a static manifest selector — it would apply across all URLs and silently hide the first tab on every tablist on X (profile Posts, Notifications All, Search Latest, etc.). v2.0.2 (2026-10-09) also collapses timeline cells headed by an h2 reading Promoted Post (uBO uAssets filters.txt), which the article-scoped label scan never saw because the heading sits outside the article."
+}

@@ -48,13 +48,13 @@ export function isPrivateIPv4(h: string): boolean {
   return false;
 }
 
-// Nur https ODER http zu wörtlichen privaten IPs / localhost / .local (kein Klartext-Auth zu fremden Hosts)
+// Nur http/https zu wörtlichen privaten IPs / localhost / .local — auch https wird
+// auf private/lokale Hosts beschränkt (kein Datenabfluss der Geräteliste an fremde Hosts).
 export function isAllowedUrl(url: string): boolean {
   try {
     const u = new URL(url);
     const proto = u.protocol.toLowerCase();
-    if (proto === "https:") return true;
-    if (proto !== "http:") return false;
+    if (proto !== "https:" && proto !== "http:") return false;
     const h = u.hostname.toLowerCase();
     if (isPrivateIPv4(h)) return true;
     if (h === "localhost" || h.endsWith(".local")) return true;

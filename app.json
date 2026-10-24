@@ -34,7 +34,8 @@
     },
     "plugins": [
       "expo-splash-screen",
-      "expo-secure-store"
+      "expo-secure-store",
+      "./plugins/withScreenTimeShield"
     ],
     "extra": {
       "eas": {

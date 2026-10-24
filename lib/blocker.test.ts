@@ -40,8 +40,15 @@ test("isAllowedUrl: erlaubte Ziele", () => {
   assert.equal(isAllowedUrl("http://192.168.0.221:3000"), true);
   assert.equal(isAllowedUrl("http://localhost:3000"), true);
   assert.equal(isAllowedUrl("http://raspi.local"), true);
-  assert.equal(isAllowedUrl("https://anything.example"), true);
-  assert.equal(isAllowedUrl("HTTPS://Host"), true);
+  assert.equal(isAllowedUrl("https://192.168.0.221"), true);
+  assert.equal(isAllowedUrl("https://raspi.local"), true);
+  assert.equal(isAllowedUrl("HTTPS://localhost"), true);
+});
+
+test("isAllowedUrl: https nur zu privaten/lokalen Hosts (kein Datenabfluss)", () => {
+  assert.equal(isAllowedUrl("https://anything.example"), false);
+  assert.equal(isAllowedUrl("https://evil.com"), false);
+  assert.equal(isAllowedUrl("https://192.168.0.1.attacker.com"), false);
 });
 
 test("ruleIp: Endanker (25 matcht nicht 253)", () => {

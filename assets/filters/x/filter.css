@@ -1,0 +1,85 @@
+/* === X/Twitter Content Filter CSS === */
+
+/* DULL_GROUP_START:ads */
+/* Promoted content — collapse cells containing ad pixels */
+[data-testid="top-impression-pixel"],
+[data-testid="placementTracking"] { display: none !important; }
+[data-testid="cellInnerDiv"]:has([data-testid="top-impression-pixel"]),
+[data-testid="cellInnerDiv"]:has([data-testid="eventHero"]) { height: 0 !important; min-height: 0 !important; overflow: hidden !important; padding: 0 !important; margin: 0 !important; visibility: hidden !important; opacity: 0 !important; }
+
+/* Promoted events */
+[data-testid="eventHero"] { display: none !important; }
+/* DULL_GROUP_END:ads */
+
+/* DULL_GROUP_START:trending */
+/* Trending and sidebar sections */
+div[aria-label="Timeline: Trending now"],
+section[aria-label="Trending"],
+[data-testid="trend"],
+[data-testid="sidebarColumn"] section { display: none !important; }
+/* DULL_GROUP_END:trending */
+
+/* DULL_GROUP_START:grok */
+/* Grok elements */
+a[href="/i/grok"],
+a[href*="/i/grok"],
+[data-testid="grok"],
+[data-testid="grokInPost"],
+[data-testid="grok_compose"],
+[data-testid="GrokDrawer"],
+[aria-label*="Grok"] { display: none !important; }
+/* DULL_GROUP_END:grok */
+
+/* DULL_GROUP_START:forYou */
+/* Hide "For You" tab — handled dynamically in filter.js:
+   a dedicated <style id="dull-x-home-foryou"> element with
+   `div[role="tablist"] > div:first-child { display: none !important; }`
+   is injected only while on `/` or `/home` and removed on navigation away.
+   This keeps hiding persistent across React re-renders (stateless CSS) while
+   scoped to home so profile/notifications/search tablists are unaffected.
+   Do NOT move that selector here — it would apply across all URLs. */
+/* DULL_GROUP_END:forYou */
+
+/* DULL_GROUP_START:suggestions */
+/* Inline suggestions — collapse cells containing UserCell */
+[data-testid="cellInnerDiv"]:has([data-testid="UserCell"]) { height: 0 !important; min-height: 0 !important; overflow: hidden !important; padding: 0 !important; margin: 0 !important; visibility: hidden !important; opacity: 0 !important; }
+
+/* Who to follow sidebar */
+aside[aria-label="Who to follow"] { display: none !important; }
+/* DULL_GROUP_END:suggestions */
+
+/* DULL_GROUP_START:premium */
+/* Premium upsells */
+a[href*="premium_sign_up"],
+a[href*="twitter_blue"],
+aside[aria-label="Subscribe to Premium"],
+aside[aria-label="Upgrade to Premium+"] { display: none !important; }
+/* DULL_GROUP_END:premium */
+
+/* DULL_GROUP_START:bottomNav */
+/* Hide bottom nav tabs except Search/Explore — search is only accessible via bottom nav on X mobile.
+   Target tab containers (li or div wrapping each link) rather than links directly. */
+nav[aria-label="Primary"] a[href="/home"],
+nav[aria-label="Primary"] a[href="/i/grok"],
+nav[aria-label="Primary"] a[href="/notifications"],
+nav[aria-label="Primary"] a[href="/messages"],
+nav[aria-label="Primary"] a[data-testid="AppTabBar_Home_Link"],
+nav[aria-label="Primary"] a[data-testid="AppTabBar_Grok_Link"],
+nav[aria-label="Primary"] a[data-testid="AppTabBar_Notifications_Link"],
+nav[aria-label="Primary"] a[data-testid="AppTabBar_DirectMessage_Link"],
+nav[aria-label="Primary"] a[href$="/compose/post"] { display: none !important; }
+/* Floating compose button */
+a[href$="/compose/post"][data-testid="SideNav_NewTweet_Button"] { display: none !important; }
+/* DULL_GROUP_END:bottomNav */
+
+/* Spaces and Live broadcasts (always on) */
+div[aria-label="Live"],
+div[aria-label="Live broadcast"],
+div[aria-label^="Live "],
+div[aria-label="Spaces"],
+div[aria-label="Space"],
+div[aria-label^="Space:"] { display: none !important; }
+
+/* App install banners and dialogs (always on — functional) */
+[data-testid="BottomBar"],
+[data-testid="app-bar-close"] { display: none !important; }

@@ -14,6 +14,7 @@ import { useFonts } from "expo-font";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import LottieView from "lottie-react-native";
 import { isAllowedUrl } from "./lib/blocker";
+import Browser from "./components/Browser";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Nothing-Design: monochrome Palette (keine Farbakzente, kein Gradient)
@@ -126,7 +127,7 @@ export default function App() {
     SpaceGroteskBold: require("./assets/fonts/SpaceGrotesk-Bold.ttf"),
   });
 
-  const [tab, setTab] = useState<"glyph" | "devices" | "server">("glyph");
+  const [tab, setTab] = useState<"glyph" | "devices" | "server" | "browser">("glyph");
   const [now, setNow] = useState(() => new Date());
 
   // Server-Config (aus AsyncStorage, Default = Raspi-AdGuard im Heimnetz)
@@ -242,6 +243,7 @@ export default function App() {
           [
             ["glyph", "GLYPH"],
             ["devices", "GERÄTE"],
+            ["browser", "BROWSER"],
             ["server", "SERVER"],
           ] as const
         ).map(([key, label]) => (
@@ -305,6 +307,8 @@ export default function App() {
           )}
         </ScrollView>
       )}
+
+      {tab === "browser" && <Browser />}
 
       {tab === "server" && (
         <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
