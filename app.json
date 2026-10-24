@@ -17,7 +17,7 @@
           "NSAllowsLocalNetworking": true
         }
       },
-      "buildNumber": "103"
+      "buildNumber": "104"
     },
     "android": {
       "package": "com.meister.blockphone",
@@ -34,8 +34,7 @@
     },
     "plugins": [
       "expo-splash-screen",
-      "expo-secure-store",
-      "./plugins/withScreenTimeShield"
+      "expo-secure-store"
     ],
     "extra": {
       "eas": {
