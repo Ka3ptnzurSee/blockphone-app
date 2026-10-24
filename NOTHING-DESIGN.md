@@ -81,8 +81,12 @@ liegen jetzt in `assets/fonts/`:
 - [x] **Nothing Launcher APK geladen + dekompiliert** (`apkeep` via APKPure → `apktool`)
   → `/opt/apps/nothing-re/decompiled/`, base `com.nothing.launcher.apk` (v1.0.2, targetSDK 31)
 - [x] **Fonts extrahiert** → `assets/fonts/` (ndot57, ndot, lettera_mono_ll_regular/light)
-- [x] **Nothing X IPA gezogen** (v3.10.1, 253 MB, `ipatool` + 2FA-Login `--keychain-passphrase`)
-  → `/opt/apps/nothing-re/extracted-ios/` (Flutter-App `Runner.app`); Fonts → `assets/fonts/`
+- [x] **Nothing X IPA gezogen** (v3.10.1, 253 MB, Flutter-App `Runner.app`)
+  → Fonts in `assets/fonts/`; Lottie-Animationen in `flutter_assets/assets/lottie/` (139 Stück)
+- [x] **Font-Manifest extrahiert** (`FontManifest.json`): `Ndot500` = Ndot-55-UpAndLow,
+  `Ndot700` = Ndot-57-UpAndLow, `NType82` = Fließtext, plus `Inter`, `Geist`, `GeistMono`.
+- [x] **Dot-Matrix-Animation gefunden**: `lottie/dot-animation-dark.json` + `-light.json`
+  (144×144, 29.97 fps, 38 Frames; Layer „Monochrome" (weiß) + „Red" (rot)) = das Glyph-Motiv.
 - [ ] Farb-/Token-Palette als `theme.ts` übernehmen (monochrome Werte aus `colors.xml` liegen vor)
 - [ ] Glyph-Motiv als Komponente bauen (Skia/Reanimated)
 

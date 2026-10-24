@@ -2,7 +2,6 @@ import { StatusBar } from "expo-status-bar";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Animated,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -14,6 +13,7 @@ import {
 import { useFonts } from "expo-font";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
+import LottieView from "lottie-react-native";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Nothing-Design: monochrome Palette (keine Farbakzente, kein Gradient)
@@ -181,50 +181,16 @@ async function applyBlock(cfg: Cfg, ip: string, on: boolean) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Glyph-Motiv (stilisierte LED-Streifen, wie Nothing Glyph Interface)
+// Glyph-Motiv — die echte Nothing-Dot-Matrix-Animation (Lottie, aus Nothing X)
 // ─────────────────────────────────────────────────────────────────────────────
 function Glyph({ size = 230 }: { size?: number }) {
-  const pulse = useRef(new Animated.Value(0.35)).current;
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration: 1100, useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 0.35, duration: 1100, useNativeDriver: true }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [pulse]);
-
-  const n = 8;
-  const bars = Array.from({ length: n });
   return (
-    <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
-      {bars.map((_, i) => (
-        <Animated.View
-          key={i}
-          style={{
-            position: "absolute",
-            width: size,
-            height: size,
-            transform: [{ rotate: `${i * (360 / n)}deg` }],
-            opacity: pulse,
-          }}
-        >
-          <View
-            style={{
-              position: "absolute",
-              top: 0,
-              left: size / 2 - 3.5,
-              width: 7,
-              height: size * 0.3,
-              borderRadius: 4,
-              backgroundColor: C.dot,
-            }}
-          />
-        </Animated.View>
-      ))}
-    </View>
+    <LottieView
+      source={require("./assets/lottie/dot-animation-dark.json")}
+      autoPlay
+      loop
+      style={{ width: size, height: size }}
+    />
   );
 }
 
