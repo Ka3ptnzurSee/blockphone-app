@@ -12,9 +12,8 @@ import {
 } from "react-native";
 import { useFonts } from "expo-font";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as SecureStore from "expo-secure-store";
 import LottieView from "lottie-react-native";
-import { MARKER, b64, isAllowedUrl, ruleIp, blockedIps } from "./lib/blocker";
+import { isAllowedUrl } from "./lib/blocker";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Nothing-Design: monochrome Palette (keine Farbakzente, kein Gradient)
@@ -31,30 +30,16 @@ const C = {
   dotOff: "#3a3a3a",
 };
 
-// Geräte aus devices.json des Netzwerkblockers (Raspi/AdGuard)
-const DEVICES = [
-  { name: "meister", ip: "192.168.0.253" },
-  { name: "laptop", ip: "192.168.0.88" },
-  { name: "ipad", ip: "192.168.0.29" },
-  { name: "iphone", ip: "192.168.0.215" },
-  { name: "tvstick", ip: "192.168.0.133" },
-];
+// Geräte werden dynamisch von NetSitter (/api/status) geladen.
 
-const STORAGE = {
-  url: "pb-server-url",
-  user: "pb-user",
-  pass: "pb-pass",
-};
+const STORAGE = { url: "pb-server-url" };
 
-type Cfg = { url: string; user: string; pass: string };
+type Cfg = { url: string };
 
-// Server-Default: Raspi-AdGuard im Heimnetz. Passwort wird beim Build via
-// EXPO_PUBLIC_ADGUARD_PW injiziert (GitHub-Secret) oder vom Nutzer im
-// Server-Tab eingegeben — NIE im Source hinterlegen.
+// Server-Default: NetSitter auf dem Raspi (Port 3199, keine Auth). URL kann beim
+// Build via EXPO_PUBLIC_NETSITTER_URL injiziert werden.
 const DEFAULT_CFG: Cfg = {
-  url: process.env.EXPO_PUBLIC_ADGUARD_URL || "http://192.168.0.221:3000",
-  user: process.env.EXPO_PUBLIC_ADGUARD_USER || "admin",
-  pass: process.env.EXPO_PUBLIC_ADGUARD_PW || "",
+  url: process.env.EXPO_PUBLIC_NETSITTER_URL || "http://192.168.0.221:3199",
 };
 
 // fetch mit Timeout + Redirect-Schutz (Credentials nie an Redirect-Ziele weiterreichen)
@@ -75,40 +60,45 @@ const MONTHS = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// AdGuard-Client (spricht direkt die AdGuard-Home-API auf dem Raspi an)
-// Sperre = DNS-Filterregel  /.*/$client=<ip>  # CENTRAL-BLOCK
+// NetSitter-Client (keine Auth — API auf dem Raspi, Port 3199)
 // ─────────────────────────────────────────────────────────────────────────────
-function authHeader(cfg: Cfg): string {
-  return "Basic " + b64(`${cfg.user}:${cfg.pass}`);
-}
+type Device = {
+  id: string;
+  ip: string;
+  mac: string;
+  name: string;
+  blocked: boolean;
+  reason: string;
+  schedule_blocked: boolean;
+  schedule_reason: string;
+};
 
-async function getRules(cfg: Cfg): Promise<string[]> {
-  const res = await fetchWithTimeout(`${cfg.url.replace(/\/+$/, "")}/control/filtering/status`, {
-    headers: { Accept: "application/json", Authorization: authHeader(cfg) },
+async function getStatus(cfg: Cfg): Promise<Device[]> {
+  const res = await fetchWithTimeout(`${cfg.url.replace(/\/+$/, "")}/api/status`, {
+    headers: { Accept: "application/json" },
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
-  return (data.user_rules || []).map(String);
+  const raw = (data.devices || {}) as Record<string, any>;
+  return Object.entries(raw).map(([id, d]) => ({
+    id,
+    ip: d.ip || "",
+    mac: d.mac || "",
+    name: d.name || id,
+    blocked: !!d.blocked,
+    reason: d.reason || "",
+    schedule_blocked: !!d.schedule_blocked,
+    schedule_reason: d.schedule_reason || "",
+  }));
 }
 
-async function setRules(cfg: Cfg, rules: string[]): Promise<void> {
-  const res = await fetchWithTimeout(`${cfg.url.replace(/\/+$/, "")}/control/filtering/set_rules`, {
+async function setBlock(cfg: Cfg, id: string, on: boolean): Promise<void> {
+  const res = await fetchWithTimeout(`${cfg.url.replace(/\/+$/, "")}/api/${on ? "block" : "unblock"}`, {
     method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      Authorization: authHeader(cfg),
-    },
-    body: JSON.stringify({ rules }),
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({ device: id }),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-}
-
-async function applyBlock(cfg: Cfg, ip: string, on: boolean) {
-  const rules = await getRules(cfg);
-  const without = rules.filter((r) => !(r.includes(MARKER) && ruleIp(r) === ip));
-  const next = on ? [...without, `/.*/$client=${ip}  ${MARKER}`] : without;
-  await setRules(cfg, next);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -146,8 +136,8 @@ export default function App() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // Geräte-Status
-  const [rules, setRules] = useState<string[] | null>(null);
+  // Geräte-Status (NetSitter /api/status)
+  const [devices, setDevices] = useState<Device[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyIp, setBusyIp] = useState<string | null>(null);
   const busyRef = useRef(false);
@@ -155,16 +145,8 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const [url, user, pass] = await Promise.all([
-          AsyncStorage.getItem(STORAGE.url),
-          AsyncStorage.getItem(STORAGE.user),
-          SecureStore.getItemAsync(STORAGE.pass),
-        ]);
-        const next: Cfg = {
-          url: url && isAllowedUrl(url) ? url : DEFAULT_CFG.url,
-          user: user || DEFAULT_CFG.user,
-          pass: pass || DEFAULT_CFG.pass,
-        };
+        const url = await AsyncStorage.getItem(STORAGE.url);
+        const next: Cfg = { url: url && isAllowedUrl(url) ? url : DEFAULT_CFG.url };
         setCfg(next);
         setCfgDraft(next);
       } catch {
@@ -181,10 +163,10 @@ export default function App() {
   async function refresh() {
     setError(null);
     try {
-      setRules(await getRules(cfg));
+      setDevices(await getStatus(cfg));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-      setRules(null);
+      setDevices(null);
     }
   }
 
@@ -196,13 +178,13 @@ export default function App() {
     }
   }, [tab, cfg]);
 
-  async function toggleDevice(ip: string, on: boolean) {
+  async function toggleDevice(id: string, on: boolean) {
     if (busyRef.current) return; // synchroner Mutex: ein Toggle app-weit gleichzeitig
     busyRef.current = true;
-    setBusyIp(ip);
+    setBusyIp(id);
     setError(null);
     try {
-      await applyBlock(cfg, ip, on);
+      await setBlock(cfg, id, on);
       await refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -213,11 +195,7 @@ export default function App() {
   }
 
   async function saveServer() {
-    const next: Cfg = {
-      url: cfgDraft.url.trim().replace(/\/+$/, ""),
-      user: cfgDraft.user.trim(),
-      pass: cfgDraft.pass,
-    };
+    const next: Cfg = { url: cfgDraft.url.trim().replace(/\/+$/, "") };
     if (!isAllowedUrl(next.url)) {
       setSaveError("URL nur https oder lokales Netz (http://192.168.x.x / .local).");
       return;
@@ -225,15 +203,7 @@ export default function App() {
     setSaving(true);
     setSaveError(null);
     try {
-      await AsyncStorage.multiSet([
-        [STORAGE.url, next.url],
-        [STORAGE.user, next.user],
-      ]);
-      if (next.pass) {
-        await SecureStore.setItemAsync(STORAGE.pass, next.pass);
-      } else {
-        await SecureStore.deleteItemAsync(STORAGE.pass);
-      }
+      await AsyncStorage.setItem(STORAGE.url, next.url);
       setCfg(next);
       setServerOpen(false);
     } catch (e) {
@@ -252,7 +222,6 @@ export default function App() {
     );
   }
 
-  const blocked = blockedIps(rules || []);
   const hh = String(now.getHours()).padStart(2, "0");
   const mm = String(now.getMinutes()).padStart(2, "0");
   const dateStr = `${DAYS[now.getDay()]}, ${now.getDate()}. ${MONTHS[now.getMonth()]}`;
@@ -296,20 +265,22 @@ export default function App() {
         <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
           <Text style={styles.sectionLabel}>GERÄTE IM NETZ</Text>
           {error ? <Text style={styles.error}>⚠ {error}</Text> : null}
-          {rules === null && !error ? (
+          {devices === null && !error ? (
             <View style={styles.center}>
               <ActivityIndicator color={C.dot} />
               <Text style={styles.hint}>verbinde …</Text>
             </View>
           ) : (
-            DEVICES.map((d) => {
-              const isBlocked = blocked.has(d.ip);
-              const busy = busyIp === d.ip;
+            (devices || []).map((d) => {
+              const isBlocked = d.blocked || d.schedule_blocked;
+              const busy = busyIp === d.id;
               return (
-                <View key={d.ip} style={styles.deviceCard}>
+                <View key={d.id} style={styles.deviceCard}>
                   <View style={styles.deviceInfo}>
                     <Text style={styles.deviceName}>{d.name}</Text>
-                    <Text style={styles.deviceIp}>{d.ip}</Text>
+                    <Text style={styles.deviceIp}>
+                      {d.ip}{d.schedule_blocked ? " · Zeitplan" : ""}
+                    </Text>
                   </View>
                   <View style={styles.deviceState}>
                     <View style={[styles.stateDot, { backgroundColor: isBlocked ? C.dotOff : C.dot }]} />
@@ -318,14 +289,14 @@ export default function App() {
                     </Text>
                   </View>
                   <Pressable
-                    onPress={() => toggleDevice(d.ip, !isBlocked)}
+                    onPress={() => toggleDevice(d.id, !d.blocked)}
                     disabled={busy}
-                    style={[styles.toggleBtn, isBlocked && styles.toggleBtnOn]}
+                    style={[styles.toggleBtn, d.blocked && styles.toggleBtnOn]}
                   >
                     {busy ? (
                       <ActivityIndicator size="small" color={C.text} />
                     ) : (
-                      <Text style={styles.toggleText}>{isBlocked ? "ENTSPERREN" : "SPERREN"}</Text>
+                      <Text style={styles.toggleText}>{d.blocked ? "ENTSPERREN" : "SPERREN"}</Text>
                     )}
                   </Pressable>
                 </View>
@@ -337,10 +308,10 @@ export default function App() {
 
       {tab === "server" && (
         <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
-          <Text style={styles.sectionLabel}>SERVER (ADGUARD)</Text>
+          <Text style={styles.sectionLabel}>SERVER (NETSITTER)</Text>
           <Text style={styles.hint}>
-            Die App spricht direkt die AdGuard-Home-API auf dem Raspberry Pi an (Heimnetz). URL und
-            Benutzer werden lokal gespeichert; das Passwort liegt im iOS-Keychain (SecureStore).
+            Die App spricht die NetSitter-API auf dem Raspberry Pi an (Heimnetz, Port 3199). Keine
+            Anmeldung nötig — nur die URL wird lokal gespeichert.
           </Text>
           {saveError ? <Text style={styles.error}>⚠ {saveError}</Text> : null}
           <Text style={styles.fieldLabel}>URL</Text>
@@ -348,32 +319,11 @@ export default function App() {
             style={styles.input}
             value={cfgDraft.url}
             onChangeText={(t) => setCfgDraft((c) => ({ ...c, url: t }))}
-            placeholder="http://192.168.0.221:3000"
+            placeholder="http://192.168.0.221:3199"
             placeholderTextColor={C.text3}
             autoCapitalize="none"
             autoCorrect={false}
             keyboardType="url"
-          />
-          <Text style={styles.fieldLabel}>BENUTZER</Text>
-          <TextInput
-            style={styles.input}
-            value={cfgDraft.user}
-            onChangeText={(t) => setCfgDraft((c) => ({ ...c, user: t }))}
-            placeholder="admin"
-            placeholderTextColor={C.text3}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          <Text style={styles.fieldLabel}>PASSWORT</Text>
-          <TextInput
-            style={styles.input}
-            value={cfgDraft.pass}
-            onChangeText={(t) => setCfgDraft((c) => ({ ...c, pass: t }))}
-            placeholder="AdGuard-Passwort"
-            placeholderTextColor={C.text3}
-            secureTextEntry
-            autoCapitalize="none"
-            autoCorrect={false}
           />
           <Pressable onPress={saveServer} disabled={saving} style={styles.saveBtn}>
             {saving ? (
