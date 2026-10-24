@@ -19,7 +19,7 @@
   "submit": {
     "production": {
       "ios": {
-        "ascAppId": "__BLOCKPHONE_ASC_APP_ID__",
+        "ascAppId": "6826450166",
         "appleTeamId": "VW2SBC8228",
         "ascApiKeyPath": "credentials/AscApiKey_26AXZ5M8UR.p8",
         "ascApiKeyId": "26AXZ5M8UR",

@@ -12,9 +12,12 @@
       "bundleIdentifier": "com.meister.blockphone",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "CFBundleDisplayName": "Blockphone"
+        "CFBundleDisplayName": "Blockphone",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
       },
-      "buildNumber": "1"
+      "buildNumber": "4"
     },
     "android": {
       "package": "com.meister.blockphone",
@@ -30,7 +33,8 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-splash-screen"
+      "expo-splash-screen",
+      "expo-secure-store"
     ],
     "extra": {
       "eas": {
