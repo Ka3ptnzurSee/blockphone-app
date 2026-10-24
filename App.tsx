@@ -48,6 +48,15 @@ const STORAGE = {
 
 type Cfg = { url: string; user: string; pass: string };
 
+// Server-Default: Raspi-AdGuard im Heimnetz. Passwort wird beim Build via
+// EXPO_PUBLIC_ADGUARD_PW injiziert (GitHub-Secret) oder vom Nutzer im
+// Server-Tab eingegeben — NIE im Source hinterlegen.
+const DEFAULT_CFG: Cfg = {
+  url: process.env.EXPO_PUBLIC_ADGUARD_URL || "http://192.168.0.221:3000",
+  user: process.env.EXPO_PUBLIC_ADGUARD_USER || "admin",
+  pass: process.env.EXPO_PUBLIC_ADGUARD_PW || "",
+};
+
 // fetch mit Timeout + Redirect-Schutz (Credentials nie an Redirect-Ziele weiterreichen)
 async function fetchWithTimeout(url: string, init: RequestInit, ms = 6000): Promise<Response> {
   const ctrl = new AbortController();
@@ -131,7 +140,7 @@ export default function App() {
   const [now, setNow] = useState(() => new Date());
 
   // Server-Config (aus AsyncStorage, Default = Raspi-AdGuard im Heimnetz)
-  const [cfg, setCfg] = useState<Cfg>({ url: "http://192.168.0.221:3000", user: "admin", pass: "" });
+  const [cfg, setCfg] = useState<Cfg>(DEFAULT_CFG);
   const [cfgDraft, setCfgDraft] = useState<Cfg>(cfg);
   const [serverOpen, setServerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -152,9 +161,9 @@ export default function App() {
           SecureStore.getItemAsync(STORAGE.pass),
         ]);
         const next: Cfg = {
-          url: url && isAllowedUrl(url) ? url : cfg.url,
-          user: user || cfg.user,
-          pass: pass || "",
+          url: url && isAllowedUrl(url) ? url : DEFAULT_CFG.url,
+          user: user || DEFAULT_CFG.user,
+          pass: pass || DEFAULT_CFG.pass,
         };
         setCfg(next);
         setCfgDraft(next);
