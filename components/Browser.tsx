@@ -115,6 +115,10 @@ export default function Browser() {
           onShouldStartLoadWithRequest={(req) => {
             try {
               const u = new URL(req.url);
+              // Nur http/https — custom schemes (youtube://, instagram://, …) öffnen
+              // sonst die native App / Safari. App-Store-Links ebenso blocken.
+              if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+              if (/apps\.apple\.com|itunes\.apple\.com/i.test(u.hostname)) return false;
               // pathname ist prozent-kodiert → dekodieren, sonst umgeht /%72edirect den Block.
               const path = decodeURIComponent(u.pathname);
               // Redirect-Endpunkt präventiv blocken (Ziel immer extern, umgeht Policy-Prüfung).
