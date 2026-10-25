@@ -1,6 +1,6 @@
 // AsyncStorage-Anbindung für Streak + PIN (reine Persistenz, keine UI).
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { addActiveDay, daysSince, isValidPin, newSalt, pinHash, streakDays, todayKey } from "./streak";
+import { addActiveDay, isValidPin, newSalt, pinHash, streakDays, todayKey } from "./streak";
 
 export const K = {
   pinHash: "pb-pin-hash",
@@ -9,20 +9,34 @@ export const K = {
   activeDays: "pb-active-days",
 };
 
-export type StreakInfo = { days: number; since: number };
+export type StreakInfo = { days: number };
+
+// Gespeicherte "aktive Tage" robust parsen. AsyncStorage kann korrupte oder
+// typfremde Werte enthalten (JSON.parse liefert Zahl/String/Objekt) — nie blind
+// an new Set()/streakDays() weiterreichen.
+function parseActiveDays(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(raw);
+    if (
+      Array.isArray(v) &&
+      v.every((x) => typeof x === "string" && /^\d{4}-\d{2}-\d{2}$/.test(x))
+    ) {
+      return v;
+    }
+  } catch {
+    /* korrupt → leer */
+  }
+  return [];
+}
 
 export async function loadStreak(): Promise<StreakInfo> {
   try {
-    const [installedAt, activeDaysRaw] = await Promise.all([
-      AsyncStorage.getItem(K.installedAt),
-      AsyncStorage.getItem(K.activeDays),
-    ]);
-    const today = todayKey();
-    const installed = installedAt || today;
-    const active: string[] = activeDaysRaw ? JSON.parse(activeDaysRaw) : [];
-    return { days: streakDays(active, today), since: daysSince(installed, today) };
+    const activeDaysRaw = await AsyncStorage.getItem(K.activeDays);
+    const active = parseActiveDays(activeDaysRaw);
+    return { days: streakDays(active, todayKey()) };
   } catch {
-    return { days: 0, since: 1 };
+    return { days: 0 };
   }
 }
 
@@ -43,22 +57,31 @@ export async function setPin(pin: string): Promise<void> {
     [K.pinSalt, salt],
     [K.pinHash, pinHash(pin, salt)],
   ]);
+  // Erster Setup-Tag zählt bereits als aktiver Tag (Tag 1 seit Installation).
+  await touchActiveDay();
 }
 
-// PIN prüfen; bei Erfolg heute als aktiven Tag eintragen (Streak).
+// PIN prüfen. Die Streak-Persistenz ist davon entkoppelt: ein korrekter PIN darf
+// nie an einem fehlgeschlagenen Storage-Write scheitern (sonst Lockout).
 export async function verifyPin(pin: string): Promise<boolean> {
+  let ok = false;
   try {
     const [salt, hash] = await Promise.all([
       AsyncStorage.getItem(K.pinSalt),
       AsyncStorage.getItem(K.pinHash),
     ]);
-    if (!salt || !hash) return false;
-    const ok = isValidPin(pin) && pinHash(pin, salt) === hash;
-    if (ok) await touchActiveDay();
-    return ok;
+    ok = !!salt && !!hash && isValidPin(pin) && pinHash(pin, salt) === hash;
   } catch {
     return false;
   }
+  if (ok) {
+    try {
+      await touchActiveDay();
+    } catch {
+      /* Streak ist best effort — Unlock nicht blockieren */
+    }
+  }
+  return ok;
 }
 
 // Heute als aktiven Tag vermerken (idempotent) + Installationsdatum sichern.
@@ -68,7 +91,7 @@ export async function touchActiveDay(): Promise<void> {
     AsyncStorage.getItem(K.installedAt),
     AsyncStorage.getItem(K.activeDays),
   ]);
-  const active: string[] = activeDaysRaw ? JSON.parse(activeDaysRaw) : [];
+  const active = parseActiveDays(activeDaysRaw);
   await AsyncStorage.multiSet([
     [K.installedAt, installedAt || today],
     [K.activeDays, JSON.stringify(addActiveDay(active, today))],

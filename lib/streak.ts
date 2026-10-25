@@ -62,8 +62,10 @@ export function daysSince(installedAt: string, today: string = todayKey()): numb
 // Klartext in AsyncStorage — einfacher Salted-Hash.)
 // ─────────────────────────────────────────────────────────────────────────────
 
-// FNV-1a 32-bit (nicht kryptographisch — für einen Selbstkontroll-Nudge
-// ausreichend; kryptographische Härtung wäre hier falsche Signalwirkung).
+// FNV-1a 32-bit (nicht kryptographisch). Der Salt verhindert nur versehentliches
+// Ablesen im Klartext — KEIN Schutz gegen jemanden mit Geräte-/Backup-Zugriff
+// (4-stelliger PIN = 10.000 Kombinationen, offline in ms brute-forcebar). Für
+// echten Schutz: expo-crypto randomBytes + PBKDF2/scrypt.
 export function fnv1a(str: string): number {
   let h = 0x811c9dc5;
   for (let i = 0; i < str.length; i++) {

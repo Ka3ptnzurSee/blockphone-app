@@ -132,7 +132,7 @@ export default function App() {
   const [tab, setTab] = useState<"glyph" | "devices" | "server" | "browser">("glyph");
   const [now, setNow] = useState(() => new Date());
   const [unlocked, setUnlocked] = useState(false);
-  const [streak, setStreak] = useState<StreakInfo>({ days: 0, since: 1 });
+  const [streak, setStreak] = useState<StreakInfo>({ days: 0 });
 
   // Server-Config (aus AsyncStorage, Default = Raspi-AdGuard im Heimnetz)
   const [cfg, setCfg] = useState<Cfg>(DEFAULT_CFG);
