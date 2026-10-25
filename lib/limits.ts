@@ -10,6 +10,9 @@ export type LimitEntry = {
   unlockedUntilMs: number; // 0 = keine temporäre Freischaltung aktiv
 };
 
+export const MAX_LIMIT_S = 24 * 3600; // Tagesration-Deckel (24 h)
+export const MAX_UNLOCK_MS = 4 * 3600_000; // Freischaltung-Deckel (4 h)
+
 // SocialLite-Defaults: Reels-/Feed-Apps enger, YouTube/Facebook lockerer.
 export const DEFAULT_LIMITS: Record<Platform, number> = {
   youtube: 30 * 60,
@@ -72,4 +75,24 @@ export function freshEntry(platform: Platform, today: string): LimitEntry {
 export function rolloverEntry(e: LimitEntry, today: string): LimitEntry {
   if (e.day === today) return e;
   return { ...e, usedSeconds: 0, day: today, unlockedUntilMs: 0 };
+}
+
+// Eintrag aus unbekannter Quelle (AsyncStorage) validieren → null wenn ungültig.
+// Verhindert Type-Confusion (String/negative usedSeconds hebeln sonst die Sperre
+// aus) und deckelt Freischaltung + Ration.
+export function normalizeEntry(e: unknown, now = Date.now()): LimitEntry | null {
+  if (!e || typeof e !== "object" || Array.isArray(e)) return null;
+  const r = e as Record<string, unknown>;
+  const num = (x: unknown): number | null =>
+    typeof x === "number" && Number.isFinite(x) ? x : null;
+  const limit = num(r.limitSeconds);
+  const used = num(r.usedSeconds);
+  if (limit === null || used === null) return null;
+  const unlocked = num(r.unlockedUntilMs);
+  return {
+    limitSeconds: Math.min(Math.max(0, Math.floor(limit)), MAX_LIMIT_S),
+    usedSeconds: Math.max(0, Math.floor(used)),
+    day: typeof r.day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(r.day) ? r.day : "",
+    unlockedUntilMs: Math.min(unlocked ?? 0, now + MAX_UNLOCK_MS),
+  };
 }

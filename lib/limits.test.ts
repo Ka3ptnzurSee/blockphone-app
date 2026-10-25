@@ -9,6 +9,8 @@ import {
   formatRation,
   freshEntry,
   rolloverEntry,
+  normalizeEntry,
+  MAX_UNLOCK_MS,
   type LimitEntry,
 } from "./limits";
 
@@ -83,4 +85,28 @@ test("rolloverEntry: Tageswechsel setzt Verbrauch + Freischaltung zurück", () =
   assert.equal(rolled.day, "2026-10-26");
   // gleicher Tag → unverändert
   assert.equal(rolloverEntry(e, T), e);
+});
+
+test("normalizeEntry: verwirft ungültige/typfremde Werte", () => {
+  assert.equal(normalizeEntry(null), null);
+  assert.equal(normalizeEntry("x"), null);
+  assert.equal(normalizeEntry([1, 2]), null);
+  assert.equal(normalizeEntry({ limitSeconds: "1800", usedSeconds: 0 }), null);
+  assert.equal(normalizeEntry({ limitSeconds: 1800, usedSeconds: "abc" }), null);
+  assert.equal(normalizeEntry({ limitSeconds: 1800 }), null); // usedSeconds fehlt
+});
+
+test("normalizeEntry: clamt negative + Riesenwerte (Bypass-Schutz)", () => {
+  const now = 1_000_000;
+  const e = normalizeEntry({ limitSeconds: 999999999, usedSeconds: -1e9, day: T, unlockedUntilMs: now + 10 * 365 * 86400_000 }, now)!;
+  assert.ok(e);
+  assert.equal(e.usedSeconds, 0); // negativ → 0
+  assert.equal(e.limitSeconds, 24 * 3600); // Deckel 24h
+  assert.equal(e.unlockedUntilMs, now + MAX_UNLOCK_MS); // Freischaltung gedeckelt
+});
+
+test("normalizeEntry: akzeptiert gültigen Eintrag unverändert", () => {
+  const now = 1_000_000;
+  const e = normalizeEntry({ limitSeconds: 1800, usedSeconds: 42, day: T, unlockedUntilMs: now + 60_000 }, now)!;
+  assert.deepEqual(e, { limitSeconds: 1800, usedSeconds: 42, day: T, unlockedUntilMs: now + 60_000 });
 });

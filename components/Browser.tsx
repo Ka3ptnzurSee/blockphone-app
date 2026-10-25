@@ -13,7 +13,6 @@ import {
   formatCountdown,
   formatRation,
   freshEntry,
-  isLocked,
   unlockRemaining,
 } from "../lib/limits";
 import { todayKey } from "../lib/streak";
@@ -69,6 +68,7 @@ export default function Browser() {
   const pausedRef = useRef(false);
   const platformRef = useRef<Platform>("youtube");
   const webviewRef = useRef<WebView>(null);
+  const flushChainRef = useRef<Promise<void>>(Promise.resolve());
 
   // Key erzwingt Neu-Mount bei Plattform-Wechsel (frische Session, keine Alt-State).
   const key = platform;
@@ -85,17 +85,23 @@ export default function Browser() {
   const usedTotal = sessionBaseRef.current + elapsed;
   const remaining = Math.max(0, entry.limitSeconds - usedTotal);
   const unlockLeft = unlockRemaining(entry, now);
-  const locked = isLocked(entry, now);
+  const locked = remaining <= 0 && unlockLeft <= 0;
 
   // Verbrauchte Session-Sekunden persistieren + Session neu basieren.
-  async function flushUsage() {
-    const p = platformRef.current;
-    const s = Math.max(0, Math.floor((Date.now() - sessionStartRef.current) / 1000));
-    if (s <= 0) return;
-    const st = await addUsage(p, s);
-    sessionStartRef.current = Date.now();
-    sessionBaseRef.current = (st[p] || freshEntry(p, todayKey())).usedSeconds;
-    setLimits(st);
+  // Serialisiert (Chain), damit parallele Checkpoints nicht doppelt zählen;
+  // pausiert bei Sperre (kein Phantom-Verbrauch).
+  function flushUsage(): Promise<void> {
+    flushChainRef.current = flushChainRef.current.then(async () => {
+      if (pausedRef.current) return;
+      const p = platformRef.current;
+      const s = Math.max(0, Math.floor((Date.now() - sessionStartRef.current) / 1000));
+      if (s <= 0) return;
+      const st = await addUsage(p, s);
+      sessionStartRef.current = Date.now();
+      sessionBaseRef.current = (st[p] || freshEntry(p, todayKey())).usedSeconds;
+      setLimits(st);
+    });
+    return flushChainRef.current;
   }
 
   // Plattform wechseln: alte Session abschließen, neue laden.
@@ -139,11 +145,12 @@ export default function Browser() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Bei Sperre: Session pausieren; bei Freischaltung: fortsetzen.
+  // Bei Sperre: letzte aktive Sekunden sichern, DANN pausieren. Bei Freischaltung: fortsetzen.
   useEffect(() => {
     if (locked && !pausedRef.current) {
-      pausedRef.current = true;
-      void flushUsage();
+      void flushUsage().then(() => {
+        pausedRef.current = true;
+      });
     } else if (!locked && pausedRef.current) {
       pausedRef.current = false;
       sessionStartRef.current = Date.now();
@@ -175,6 +182,8 @@ export default function Browser() {
   }
 
   function onNav(nav: WebViewNavigation) {
+    // about:blank / initiale Leer-Navigation nicht als fremd behandeln.
+    if (!nav.url || nav.url === "about:blank") return;
     // Redirect-Nachkontrolle: onShouldStartLoadWithRequest greift bei 3xx-Redirects
     // (z. B. m.youtube.com/redirect, l.instagram.com) nicht — hier hart zurücksetzen,
     // falls eine fremde Origin durchgerutscht ist.
@@ -227,8 +236,18 @@ export default function Browser() {
                 // sonst die native App / Safari. App-Store-Links ebenso blocken.
                 if (u.protocol !== "http:" && u.protocol !== "https:") return false;
                 if (/apps\.apple\.com|itunes\.apple\.com/i.test(u.hostname)) return false;
-                // pathname ist prozent-kodiert → dekodieren, sonst umgeht /%72edirect den Block.
-                const path = decodeURIComponent(u.pathname);
+                // pathname iterativ dekodieren (Doppel-Encoding wie /%2572edirect umgehen);
+                // Fehler → fail-closed blocken.
+                let path = u.pathname;
+                let prev = "";
+                while (path !== prev) {
+                  prev = path;
+                  try {
+                    path = decodeURIComponent(path);
+                  } catch {
+                    return false;
+                  }
+                }
                 // Redirect-Endpunkt präventiv blocken (Ziel immer extern, umgeht Policy-Prüfung).
                 if (REDIRECT_PATH_RE.test(path)) return false;
                 return ALLOWED_ORIGINS.includes(u.origin);
