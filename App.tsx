@@ -15,6 +15,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import LottieView from "lottie-react-native";
 import { isAllowedUrl } from "./lib/blocker";
 import Browser from "./components/Browser";
+import PinGate from "./components/PinGate";
+import { loadStreak, type StreakInfo } from "./lib/streakStore";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Nothing-Design: monochrome Palette (keine Farbakzente, kein Gradient)
@@ -129,6 +131,8 @@ export default function App() {
 
   const [tab, setTab] = useState<"glyph" | "devices" | "server" | "browser">("glyph");
   const [now, setNow] = useState(() => new Date());
+  const [unlocked, setUnlocked] = useState(false);
+  const [streak, setStreak] = useState<StreakInfo>({ days: 0, since: 1 });
 
   // Server-Config (aus AsyncStorage, Default = Raspi-AdGuard im Heimnetz)
   const [cfg, setCfg] = useState<Cfg>(DEFAULT_CFG);
@@ -160,6 +164,10 @@ export default function App() {
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
+
+  useEffect(() => {
+    if (unlocked) loadStreak().then(setStreak).catch(() => {});
+  }, [unlocked]);
 
   async function refresh() {
     setError(null);
@@ -223,6 +231,10 @@ export default function App() {
     );
   }
 
+  if (!unlocked) {
+    return <PinGate onUnlock={() => setUnlocked(true)} />;
+  }
+
   const hh = String(now.getHours()).padStart(2, "0");
   const mm = String(now.getMinutes()).padStart(2, "0");
   const dateStr = `${DAYS[now.getDay()]}, ${now.getDate()}. ${MONTHS[now.getMonth()]}`;
@@ -259,6 +271,7 @@ export default function App() {
           <Glyph />
           <Text style={styles.clock}>{`${hh}:${mm}`}</Text>
           <Text style={styles.date}>{dateStr}</Text>
+          <Text style={styles.streak}>DAY {streak.days} · DAYS ON YOUR TERMS</Text>
           <Text style={styles.hint}>Sperre & Fokus — schwarz auf weiß.</Text>
         </View>
       )}
@@ -408,6 +421,13 @@ const styles = StyleSheet.create({
     color: C.text2,
     letterSpacing: 1,
     textTransform: "uppercase",
+  },
+  streak: {
+    fontFamily: "Ndot",
+    fontSize: 13,
+    color: C.dot,
+    letterSpacing: 2,
+    marginTop: 6,
   },
   hint: {
     fontFamily: "SpaceGrotesk",
