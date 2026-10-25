@@ -111,15 +111,19 @@ export default function Browser() {
 
   // Plattform wechseln: alte Session abschließen, neue laden.
   async function selectPlatform(p: Platform) {
-    await flushUsage();
-    platformRef.current = p;
-    const st = await ensureLimit(p);
-    setLimits(st);
-    sessionStartRef.current = Date.now();
-    sessionBaseRef.current = (st[p] || freshEntry(p, todayKey())).usedSeconds;
-    setPlatform(p);
-    setBlocked(0);
-    setLoading(true);
+    try {
+      await flushUsage();
+      platformRef.current = p;
+      const st = await ensureLimit(p);
+      setLimits(st);
+      sessionStartRef.current = Date.now();
+      sessionBaseRef.current = (st[p] || freshEntry(p, todayKey())).usedSeconds;
+      setPlatform(p);
+      setBlocked(0);
+      setLoading(true);
+    } catch {
+      /* ignorieren — Plattform-Wechsel bleibt aus */
+    }
   }
 
   // Initial: Limits laden + Session starten.
@@ -165,16 +169,24 @@ export default function Browser() {
   }, [locked]);
 
   async function doUnlock(minutes: number) {
-    lockEpochRef.current++; // ausstehende Pause invalidieren
-    const st = await unlockFor(platform, minutes);
-    setLimits(st);
-    pausedRef.current = false;
-    sessionStartRef.current = Date.now();
+    try {
+      lockEpochRef.current++; // ausstehende Pause invalidieren
+      const st = await unlockFor(platform, minutes);
+      setLimits(st);
+      pausedRef.current = false;
+      sessionStartRef.current = Date.now();
+    } catch {
+      setIntervention(false); // zurück ins Lock-Overlay statt hängen zu bleiben
+    }
   }
 
   async function doRelock() {
-    const st = await relock(platform);
-    setLimits(st);
+    try {
+      const st = await relock(platform);
+      setLimits(st);
+    } catch {
+      /* ignorieren — UI bleibt auf altem Stand */
+    }
   }
 
   function onMessage(e: { nativeEvent: { data: string } }) {
@@ -215,7 +227,13 @@ export default function Browser() {
   return (
     <View style={styles.root}>
       {/* Plattform-Picker */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pickerWrap}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        scrollEnabled={!(locked || intervention)}
+        pointerEvents={locked || intervention ? "none" : "auto"}
+        style={styles.pickerWrap}
+      >
         {PLATFORMS.map((p) => {
           const active = p.key === platform;
           return (
@@ -319,10 +337,7 @@ export default function Browser() {
               setIntervention(false);
               void doUnlock(unlockMinutes);
             }}
-            onSkip={() => {
-              setIntervention(false);
-              void doUnlock(unlockMinutes);
-            }}
+            onSkip={() => setIntervention(false)}
           />
         )}
       </View>

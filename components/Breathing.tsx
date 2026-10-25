@@ -43,13 +43,14 @@ export default function Breathing({
   onDone: () => void;
   onSkip?: () => void;
 }) {
-  const phases = PATTERNS[pattern];
-  const totalSteps = phases.length * cycles;
+  const phases = PATTERNS[pattern] ?? PATTERNS.box;
+  const safeCycles = Math.max(1, cycles);
+  const totalSteps = phases.length * safeCycles;
   const [step, setStep] = useState(0);
   const scale = useRef(new Animated.Value(1)).current;
 
   const phase = phases[Math.min(step, totalSteps - 1) % phases.length];
-  const cycleNumber = Math.min(Math.floor(step / phases.length) + 1, cycles);
+  const cycleNumber = Math.min(Math.floor(step / phases.length) + 1, safeCycles);
 
   // Kreis auf die Zielgröße der aktuellen Phase animieren.
   useEffect(() => {
@@ -85,9 +86,11 @@ export default function Breathing({
         {cycleNumber}/{cycles} · {phase.seconds}s
       </Text>
 
-      <Pressable onPress={onSkip || onDone} style={styles.skip}>
-        <Text style={styles.skipText}>ÜBERSPRINGEN</Text>
-      </Pressable>
+      {onSkip ? (
+        <Pressable onPress={onSkip} style={styles.skip}>
+          <Text style={styles.skipText}>ABBRECHEN</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }

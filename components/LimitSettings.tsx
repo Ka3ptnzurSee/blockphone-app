@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import type { Platform } from "../lib/browser";
-import { formatRation } from "../lib/limits";
+import { DEFAULT_LIMITS, formatRation } from "../lib/limits";
 import { loadLimits, setDailyLimit, type LimitState } from "../lib/limitStore";
 
 // Nothing-Design-Palette (identisch zu App.tsx)
@@ -63,7 +63,7 @@ export default function LimitSettings() {
       </Text>
 
       {PLATFORMS.map(({ key, label }) => {
-        const current = limits[key]?.limitSeconds ?? 0;
+        const current = limits[key]?.limitSeconds ?? DEFAULT_LIMITS[key];
         return (
           <View key={key} style={styles.card}>
             <View style={styles.cardHead}>
