@@ -43,9 +43,9 @@ const PLATFORMS: { key: Platform; label: string }[] = [
 const MOBILE_UA =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
 
-// Nur die 5 Plattform-Origins erlauben — der "Blocker"-Browser darf nicht auf
-// beliebige Seiten ausweichen (sonst läuft die Bridge auf fremden Origins).
-const ALLOWED_ORIGINS = Object.values(PLATFORM_URLS).map((u) => new URL(u).origin);
+// Nur http/https — custom schemes (youtube://, instagram://, …) öffnen sonst die
+// native App. Die Feed-Filter selbst aktivieren sich per Hostname (filter.js prüft
+// window.location.hostname), daher dürfen Login-/Consent-Subdomains frei laden.
 
 // Same-origin Link-Shim/Redirect-Endpunkte (m.youtube.com/redirect, m.facebook.com/l.php, /away.php …).
 // Ein 3xx-Redirect umgeht onShouldStartLoadWithRequest (WKWebView folgt ihm intern);
@@ -201,21 +201,8 @@ export default function Browser() {
   }
 
   function onNav(nav: WebViewNavigation) {
-    // about:blank / initiale Leer-Navigation nicht als fremd behandeln.
+    // about:blank / initiale Leer-Navigation nicht behandeln.
     if (!nav.url || nav.url === "about:blank") return;
-    // Redirect-Nachkontrolle: onShouldStartLoadWithRequest greift bei 3xx-Redirects
-    // (z. B. m.youtube.com/redirect, l.instagram.com) nicht — hier hart zurücksetzen,
-    // falls eine fremde Origin durchgerutscht ist.
-    try {
-      if (!ALLOWED_ORIGINS.includes(new URL(nav.url).origin)) {
-        webviewRef.current?.injectJavaScript(
-          `window.location.href = ${JSON.stringify(PLATFORM_URLS[platform])}; true;`
-        );
-        return;
-      }
-    } catch {
-      return;
-    }
     // SPA-Route-Wechsel: filter.js soll neu scannen (idempotent).
     if (nav.url !== url) {
       webviewRef.current?.injectJavaScript(`window.dispatchEvent(new Event('dull-navigation')); true;`);
@@ -253,7 +240,6 @@ export default function Browser() {
             ref={webviewRef}
             source={{ uri: PLATFORM_URLS[platform] }}
             userAgent={MOBILE_UA}
-            originWhitelist={ALLOWED_ORIGINS}
             onShouldStartLoadWithRequest={(req) => {
               try {
                 const u = new URL(req.url);
@@ -261,8 +247,7 @@ export default function Browser() {
                 // sonst die native App / Safari. App-Store-Links ebenso blocken.
                 if (u.protocol !== "http:" && u.protocol !== "https:") return false;
                 if (/apps\.apple\.com|itunes\.apple\.com/i.test(u.hostname)) return false;
-                // pathname iterativ dekodieren (Doppel-Encoding wie /%2572edirect umgehen);
-                // Fehler → fail-closed blocken.
+                // pathname iterativ dekodieren (Doppel-Encoding umgehen); Fehler → fail-closed.
                 let path = u.pathname;
                 let prev = "";
                 while (path !== prev) {
@@ -275,7 +260,9 @@ export default function Browser() {
                 }
                 // Redirect-Endpunkt präventiv blocken (Ziel immer extern, umgeht Policy-Prüfung).
                 if (REDIRECT_PATH_RE.test(path)) return false;
-                return ALLOWED_ORIGINS.includes(u.origin);
+                // Alle http/https-Origins erlauben (Dull-Muster): Login-/Consent-
+                // Subdomains müssen frei laden; Filter aktivieren sich je Host.
+                return true;
               } catch {
                 return false;
               }
