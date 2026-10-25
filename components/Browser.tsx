@@ -69,6 +69,7 @@ export default function Browser() {
   const platformRef = useRef<Platform>("youtube");
   const webviewRef = useRef<WebView>(null);
   const flushChainRef = useRef<Promise<void>>(Promise.resolve());
+  const lockEpochRef = useRef(0);
 
   // Key erzwingt Neu-Mount bei Plattform-Wechsel (frische Session, keine Alt-State).
   const key = platform;
@@ -91,7 +92,7 @@ export default function Browser() {
   // Serialisiert (Chain), damit parallele Checkpoints nicht doppelt zählen;
   // pausiert bei Sperre (kein Phantom-Verbrauch).
   function flushUsage(): Promise<void> {
-    flushChainRef.current = flushChainRef.current.then(async () => {
+    const run = flushChainRef.current.then(async () => {
       if (pausedRef.current) return;
       const p = platformRef.current;
       const s = Math.max(0, Math.floor((Date.now() - sessionStartRef.current) / 1000));
@@ -101,7 +102,8 @@ export default function Browser() {
       sessionBaseRef.current = (st[p] || freshEntry(p, todayKey())).usedSeconds;
       setLimits(st);
     });
-    return flushChainRef.current;
+    flushChainRef.current = run.catch(() => {});
+    return run;
   }
 
   // Plattform wechseln: alte Session abschließen, neue laden.
@@ -148,8 +150,9 @@ export default function Browser() {
   // Bei Sperre: letzte aktive Sekunden sichern, DANN pausieren. Bei Freischaltung: fortsetzen.
   useEffect(() => {
     if (locked && !pausedRef.current) {
+      const epoch = ++lockEpochRef.current;
       void flushUsage().then(() => {
-        pausedRef.current = true;
+        if (lockEpochRef.current === epoch) pausedRef.current = true;
       });
     } else if (!locked && pausedRef.current) {
       pausedRef.current = false;
@@ -159,6 +162,7 @@ export default function Browser() {
   }, [locked]);
 
   async function doUnlock(minutes: number) {
+    lockEpochRef.current++; // ausstehende Pause invalidieren
     const st = await unlockFor(platform, minutes);
     setLimits(st);
     pausedRef.current = false;

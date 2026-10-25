@@ -10,8 +10,6 @@ const MAX_UNLOCK_MIN = 60; // max. 60 min Freischaltung
 export type LimitState = Record<string, LimitEntry>;
 
 // Gespeicherte Limits robust parsen: jedes Entry einzeln validieren.
-
-// Gespeicherte Limits robust parsen: jedes Entry einzeln validieren.
 function parseState(raw: string | null): LimitState {
   if (!raw) return {};
   try {

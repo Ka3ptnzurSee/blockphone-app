@@ -93,6 +93,6 @@ export function normalizeEntry(e: unknown, now = Date.now()): LimitEntry | null 
     limitSeconds: Math.min(Math.max(0, Math.floor(limit)), MAX_LIMIT_S),
     usedSeconds: Math.max(0, Math.floor(used)),
     day: typeof r.day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(r.day) ? r.day : "",
-    unlockedUntilMs: Math.min(unlocked ?? 0, now + MAX_UNLOCK_MS),
+    unlockedUntilMs: Math.min(Math.max(unlocked ?? 0, 0), now + MAX_UNLOCK_MS),
   };
 }
