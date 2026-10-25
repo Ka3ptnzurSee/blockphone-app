@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { WebView, type WebViewNavigation } from "react-native-webview";
 import {
@@ -8,11 +8,21 @@ import {
   buildInjectedScript,
   type Platform,
 } from "../lib/browser";
+import { addUsage, ensureLimit, relock, unlockFor, type LimitState } from "../lib/limitStore";
+import {
+  formatCountdown,
+  formatRation,
+  freshEntry,
+  isLocked,
+  unlockRemaining,
+} from "../lib/limits";
+import { todayKey } from "../lib/streak";
 
 // Nothing-Design-Palette (identisch zu App.tsx)
 const C = {
   bg: "#000000",
   surface: "#141414",
+  surface2: "#1f1f1f",
   border: "#2a2a2a",
   text: "#ffffff",
   text2: "#8a8a8a",
@@ -42,11 +52,22 @@ const ALLOWED_ORIGINS = Object.values(PLATFORM_URLS).map((u) => new URL(u).origi
 // das Ziel ist immer extern. → Navigation zum Endpunkt selbst präventiv blocken.
 const REDIRECT_PATH_RE = /\/(redirect|redir|away(?:\.php)?|l\.php|flx\/warn|linkshim|exit)(\/|\?|$)/i;
 
+// Nutzung alle 30 s persistieren (Rebase), damit ein App-Kill max. 30 s verliert.
+const CHECKPOINT_MS = 30_000;
+
 export default function Browser() {
   const [platform, setPlatform] = useState<Platform>("youtube");
   const [loading, setLoading] = useState(true);
   const [blocked, setBlocked] = useState(0);
   const [url, setUrl] = useState("");
+
+  // Tageslimit-Engine
+  const [limits, setLimits] = useState<LimitState>({});
+  const [now, setNow] = useState(() => Date.now());
+  const sessionStartRef = useRef(Date.now());
+  const sessionBaseRef = useRef(0);
+  const pausedRef = useRef(false);
+  const platformRef = useRef<Platform>("youtube");
   const webviewRef = useRef<WebView>(null);
 
   // Key erzwingt Neu-Mount bei Plattform-Wechsel (frische Session, keine Alt-State).
@@ -55,6 +76,92 @@ export default function Browser() {
   const cfg = DEFAULT_FILTER_CONFIG;
   const before = useMemo(() => buildBeforeContentScript(cfg), []);
   const injected = useMemo(() => buildInjectedScript(platform, cfg), [platform]);
+
+  // ── Tageslimit: abgeleitete Werte ──────────────────────────────────────────
+  const entry = limits[platform] || freshEntry(platform, todayKey());
+  const elapsed = pausedRef.current
+    ? 0
+    : Math.max(0, Math.floor((now - sessionStartRef.current) / 1000));
+  const usedTotal = sessionBaseRef.current + elapsed;
+  const remaining = Math.max(0, entry.limitSeconds - usedTotal);
+  const unlockLeft = unlockRemaining(entry, now);
+  const locked = isLocked(entry, now);
+
+  // Verbrauchte Session-Sekunden persistieren + Session neu basieren.
+  async function flushUsage() {
+    const p = platformRef.current;
+    const s = Math.max(0, Math.floor((Date.now() - sessionStartRef.current) / 1000));
+    if (s <= 0) return;
+    const st = await addUsage(p, s);
+    sessionStartRef.current = Date.now();
+    sessionBaseRef.current = (st[p] || freshEntry(p, todayKey())).usedSeconds;
+    setLimits(st);
+  }
+
+  // Plattform wechseln: alte Session abschließen, neue laden.
+  async function selectPlatform(p: Platform) {
+    await flushUsage();
+    platformRef.current = p;
+    const st = await ensureLimit(p);
+    setLimits(st);
+    sessionStartRef.current = Date.now();
+    sessionBaseRef.current = (st[p] || freshEntry(p, todayKey())).usedSeconds;
+    setPlatform(p);
+    setBlocked(0);
+    setLoading(true);
+  }
+
+  // Initial: Limits laden + Session starten.
+  useEffect(() => {
+    (async () => {
+      const st = await ensureLimit("youtube");
+      setLimits(st);
+      sessionStartRef.current = Date.now();
+      sessionBaseRef.current = (st.youtube || freshEntry("youtube", todayKey())).usedSeconds;
+    })();
+    // Unmount: laufende Session abschließen.
+    return () => {
+      void flushUsage();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 1s-Tick für Countdown + Live-Anzeige.
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Checkpoint: alle 30 s persistieren.
+  useEffect(() => {
+    const t = setInterval(() => void flushUsage(), CHECKPOINT_MS);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Bei Sperre: Session pausieren; bei Freischaltung: fortsetzen.
+  useEffect(() => {
+    if (locked && !pausedRef.current) {
+      pausedRef.current = true;
+      void flushUsage();
+    } else if (!locked && pausedRef.current) {
+      pausedRef.current = false;
+      sessionStartRef.current = Date.now();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locked]);
+
+  async function doUnlock(minutes: number) {
+    const st = await unlockFor(platform, minutes);
+    setLimits(st);
+    pausedRef.current = false;
+    sessionStartRef.current = Date.now();
+  }
+
+  async function doRelock() {
+    const st = await relock(platform);
+    setLimits(st);
+  }
 
   function onMessage(e: { nativeEvent: { data: string } }) {
     try {
@@ -96,7 +203,7 @@ export default function Browser() {
         {PLATFORMS.map((p) => {
           const active = p.key === platform;
           return (
-            <Pressable key={p.key} onPress={() => { setPlatform(p.key); setBlocked(0); setLoading(true); }} style={styles.pick}>
+            <Pressable key={p.key} onPress={() => void selectPlatform(p.key)} style={styles.pick}>
               <Text style={[styles.pickText, active && styles.pickTextActive]}>{p.label}</Text>
               {active && <View style={styles.pickDot} />}
             </Pressable>
@@ -104,47 +211,67 @@ export default function Browser() {
         })}
       </ScrollView>
 
-      {/* WebView mit injizierten Feed-Filtern */}
+      {/* WebView mit injizierten Feed-Filtern (versteckt, solange gesperrt) */}
       <View style={styles.webview}>
-        <WebView
-          key={key}
-          ref={webviewRef}
-          source={{ uri: PLATFORM_URLS[platform] }}
-          userAgent={MOBILE_UA}
-          originWhitelist={ALLOWED_ORIGINS}
-          onShouldStartLoadWithRequest={(req) => {
-            try {
-              const u = new URL(req.url);
-              // Nur http/https — custom schemes (youtube://, instagram://, …) öffnen
-              // sonst die native App / Safari. App-Store-Links ebenso blocken.
-              if (u.protocol !== "http:" && u.protocol !== "https:") return false;
-              if (/apps\.apple\.com|itunes\.apple\.com/i.test(u.hostname)) return false;
-              // pathname ist prozent-kodiert → dekodieren, sonst umgeht /%72edirect den Block.
-              const path = decodeURIComponent(u.pathname);
-              // Redirect-Endpunkt präventiv blocken (Ziel immer extern, umgeht Policy-Prüfung).
-              if (REDIRECT_PATH_RE.test(path)) return false;
-              return ALLOWED_ORIGINS.includes(u.origin);
-            } catch {
-              return false;
-            }
-          }}
-          javaScriptEnabled
-          domStorageEnabled
-          allowsInlineMediaPlayback
-          mediaPlaybackRequiresUserAction={false}
-          setSupportMultipleWindows={false}
-          injectedJavaScriptBeforeContentLoaded={before}
-          injectedJavaScript={injected}
-          onMessage={onMessage}
-          onNavigationStateChange={onNav}
-          onLoadStart={() => setLoading(true)}
-          onLoadEnd={() => setLoading(false)}
-          onError={() => setLoading(false)}
-          style={styles.webviewInner}
-        />
-        {loading && (
+        {!locked && (
+          <WebView
+            key={key}
+            ref={webviewRef}
+            source={{ uri: PLATFORM_URLS[platform] }}
+            userAgent={MOBILE_UA}
+            originWhitelist={ALLOWED_ORIGINS}
+            onShouldStartLoadWithRequest={(req) => {
+              try {
+                const u = new URL(req.url);
+                // Nur http/https — custom schemes (youtube://, instagram://, …) öffnen
+                // sonst die native App / Safari. App-Store-Links ebenso blocken.
+                if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+                if (/apps\.apple\.com|itunes\.apple\.com/i.test(u.hostname)) return false;
+                // pathname ist prozent-kodiert → dekodieren, sonst umgeht /%72edirect den Block.
+                const path = decodeURIComponent(u.pathname);
+                // Redirect-Endpunkt präventiv blocken (Ziel immer extern, umgeht Policy-Prüfung).
+                if (REDIRECT_PATH_RE.test(path)) return false;
+                return ALLOWED_ORIGINS.includes(u.origin);
+              } catch {
+                return false;
+              }
+            }}
+            javaScriptEnabled
+            domStorageEnabled
+            allowsInlineMediaPlayback
+            mediaPlaybackRequiresUserAction={false}
+            setSupportMultipleWindows={false}
+            injectedJavaScriptBeforeContentLoaded={before}
+            injectedJavaScript={injected}
+            onMessage={onMessage}
+            onNavigationStateChange={onNav}
+            onLoadStart={() => setLoading(true)}
+            onLoadEnd={() => setLoading(false)}
+            onError={() => setLoading(false)}
+            style={styles.webviewInner}
+          />
+        )}
+        {loading && !locked && (
           <View style={styles.loadingOverlay}>
             <ActivityIndicator color={C.dot} />
+          </View>
+        )}
+
+        {/* Lock-Overlay: Tageslimit erreicht */}
+        {locked && (
+          <View style={styles.lockOverlay}>
+            <Text style={styles.lockTitle}>TAGESLIMIT ERREICHT</Text>
+            <Text style={styles.lockSub}>
+              {formatRation(entry.limitSeconds)} / TAG · RESETS UM MITTERNACHT
+            </Text>
+            <View style={styles.lockActions}>
+              <Pressable onPress={() => void doUnlock(5)} style={styles.lockBtn}>
+                <Text style={styles.lockBtnText}>5 MIN</Text>
+              </Pressable>
+              <Pressable onPress={() => void doUnlock(15)} style={styles.lockBtn}>
+                <Text style={styles.lockBtnText}>15 MIN</Text>
+              </Pressable>
+            </View>
           </View>
         )}
       </View>
@@ -152,9 +279,18 @@ export default function Browser() {
       {/* Status + Nav */}
       <View style={styles.bar}>
         <Text style={styles.status}>
-          {blocked > 0 ? `${blocked} ENTFERNT` : "FILTER AKTIV"}
+          {blocked > 0
+            ? `${blocked} ENTFERNT · ${formatCountdown(remaining)} ÜBRIG`
+            : unlockLeft > 0
+            ? `ENTSPERRT · ${formatCountdown(unlockLeft)}`
+            : `${formatCountdown(remaining)} ÜBRIG`}
         </Text>
         <View style={styles.nav}>
+          {unlockLeft > 0 ? (
+            <Pressable onPress={() => void doRelock()} style={styles.navBtn}>
+              <Text style={styles.relockText}>⏻</Text>
+            </Pressable>
+          ) : null}
           <Pressable onPress={() => webviewRef.current?.goBack()} style={styles.navBtn}>
             <Text style={styles.navText}>‹</Text>
           </Pressable>
@@ -206,6 +342,43 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: C.bg,
   },
+  lockOverlay: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    padding: 24,
+  },
+  lockTitle: {
+    fontFamily: "Ndot57",
+    fontSize: 28,
+    color: C.text,
+    letterSpacing: 4,
+    textAlign: "center",
+  },
+  lockSub: {
+    fontFamily: "SpaceGrotesk",
+    fontSize: 12,
+    color: C.text3,
+    letterSpacing: 2,
+    textAlign: "center",
+  },
+  lockActions: { flexDirection: "row", gap: 12, marginTop: 16 },
+  lockBtn: {
+    borderWidth: 1,
+    borderColor: C.dot,
+    borderRadius: 999,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    minWidth: 90,
+    alignItems: "center",
+  },
+  lockBtnText: {
+    fontFamily: "SpaceGrotesk",
+    fontSize: 13,
+    color: C.text,
+    letterSpacing: 2,
+  },
   bar: {
     flexDirection: "row",
     alignItems: "center",
@@ -232,4 +405,5 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   navText: { color: C.text, fontSize: 20, lineHeight: 24 },
+  relockText: { color: C.text2, fontSize: 16 },
 });
