@@ -17,7 +17,7 @@
           "NSAllowsLocalNetworking": true
         }
       },
-      "buildNumber": "110"
+      "buildNumber": "112"
     },
     "android": {
       "package": "com.meister.blockphone",
