@@ -91,6 +91,16 @@ export default function Browser() {
   const unlockLeft = unlockRemaining(entry, now);
   const locked = remaining <= 0 && unlockLeft <= 0;
 
+  // Aktueller Hostname (für die Anzeige — keine Addressleiste, daher wichtig,
+  // damit der Nutzer vor Credential-Eingabe sieht, wo er ist).
+  const host = (() => {
+    try {
+      return new URL(url).hostname;
+    } catch {
+      return "";
+    }
+  })();
+
   // Verbrauchte Session-Sekunden persistieren + Session neu basieren.
   // Serialisiert (Chain), damit parallele Checkpoints nicht doppelt zählen;
   // pausiert bei Sperre (kein Phantom-Verbrauch).
@@ -192,8 +202,15 @@ export default function Browser() {
   function onMessage(e: { nativeEvent: { data: string } }) {
     try {
       const m = JSON.parse(e.nativeEvent.data);
-      if (m && m.platform && typeof m.count === "number" && Number.isFinite(m.count)) {
-        setBlocked(m.count);
+      // Nur Meldungen der aktiven Plattform akzeptieren + Zähler begrenzen
+      // (Fremdseiten könnten sonst den Anzeige-Zähler beliebig setzen).
+      if (
+        m &&
+        m.platform === platformRef.current &&
+        typeof m.count === "number" &&
+        Number.isFinite(m.count)
+      ) {
+        setBlocked(Math.max(0, Math.min(Math.floor(m.count), 100000)));
       }
     } catch {
       /* ignorieren */
@@ -331,12 +348,12 @@ export default function Browser() {
 
       {/* Status + Nav */}
       <View style={styles.bar}>
-        <Text style={styles.status}>
-          {blocked > 0
-            ? `${blocked} ENTFERNT · ${formatCountdown(remaining)} ÜBRIG`
-            : unlockLeft > 0
+        <Text style={styles.status} numberOfLines={1}>
+          {host ? `${host} · ` : ""}
+          {unlockLeft > 0
             ? `ENTSPERRT · ${formatCountdown(unlockLeft)}`
             : `${formatCountdown(remaining)} ÜBRIG`}
+          {blocked > 0 ? ` · ${blocked}✕` : ""}
         </Text>
         <View style={styles.nav}>
           {unlockLeft > 0 ? (
