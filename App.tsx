@@ -16,6 +16,7 @@ import LottieView from "lottie-react-native";
 import { isAllowedUrl } from "./lib/blocker";
 import Browser from "./components/Browser";
 import PinGate from "./components/PinGate";
+import LimitSettings from "./components/LimitSettings";
 import { loadStreak, type StreakInfo } from "./lib/streakStore";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -129,7 +130,7 @@ export default function App() {
     SpaceGroteskBold: require("./assets/fonts/SpaceGrotesk-Bold.ttf"),
   });
 
-  const [tab, setTab] = useState<"glyph" | "devices" | "server" | "browser">("glyph");
+  const [tab, setTab] = useState<"glyph" | "devices" | "server" | "browser" | "limits">("glyph");
   const [now, setNow] = useState(() => new Date());
   const [unlocked, setUnlocked] = useState(false);
   const [streak, setStreak] = useState<StreakInfo>({ days: 0 });
@@ -256,6 +257,7 @@ export default function App() {
             ["glyph", "GLYPH"],
             ["devices", "GERÄTE"],
             ["browser", "BROWSER"],
+            ["limits", "LIMITS"],
             ["server", "SERVER"],
           ] as const
         ).map(([key, label]) => (
@@ -322,6 +324,8 @@ export default function App() {
       )}
 
       {tab === "browser" && <Browser />}
+
+      {tab === "limits" && <LimitSettings />}
 
       {tab === "server" && (
         <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>

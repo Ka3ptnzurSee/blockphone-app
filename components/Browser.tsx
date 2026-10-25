@@ -16,6 +16,7 @@ import {
   unlockRemaining,
 } from "../lib/limits";
 import { todayKey } from "../lib/streak";
+import Breathing from "./Breathing";
 
 // Nothing-Design-Palette (identisch zu App.tsx)
 const C = {
@@ -63,6 +64,8 @@ export default function Browser() {
   // Tageslimit-Engine
   const [limits, setLimits] = useState<LimitState>({});
   const [now, setNow] = useState(() => Date.now());
+  const [intervention, setIntervention] = useState(false);
+  const [unlockMinutes, setUnlockMinutes] = useState(15);
   const sessionStartRef = useRef(Date.now());
   const sessionBaseRef = useRef(0);
   const pausedRef = useRef(false);
@@ -281,21 +284,46 @@ export default function Browser() {
         )}
 
         {/* Lock-Overlay: Tageslimit erreicht */}
-        {locked && (
+        {locked && !intervention && (
           <View style={styles.lockOverlay}>
             <Text style={styles.lockTitle}>TAGESLIMIT ERREICHT</Text>
             <Text style={styles.lockSub}>
               {formatRation(entry.limitSeconds)} / TAG · RESETS UM MITTERNACHT
             </Text>
             <View style={styles.lockActions}>
-              <Pressable onPress={() => void doUnlock(5)} style={styles.lockBtn}>
-                <Text style={styles.lockBtnText}>5 MIN</Text>
-              </Pressable>
-              <Pressable onPress={() => void doUnlock(15)} style={styles.lockBtn}>
-                <Text style={styles.lockBtnText}>15 MIN</Text>
-              </Pressable>
+              {[5, 10, 15, 30].map((m) => {
+                const active = unlockMinutes === m;
+                return (
+                  <Pressable
+                    key={m}
+                    onPress={() => setUnlockMinutes(m)}
+                    style={[styles.lockChip, active && styles.lockChipActive]}
+                  >
+                    <Text style={[styles.lockChipText, active && styles.lockChipTextActive]}>
+                      {m} MIN
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </View>
+            <Pressable onPress={() => setIntervention(true)} style={styles.lockGo}>
+              <Text style={styles.lockGoText}>ATMEN & ENTSPERREN</Text>
+            </Pressable>
           </View>
+        )}
+
+        {/* Intervention (Atmung) vor dem Freischalten — one sec-Muster */}
+        {intervention && (
+          <Breathing
+            onDone={() => {
+              setIntervention(false);
+              void doUnlock(unlockMinutes);
+            }}
+            onSkip={() => {
+              setIntervention(false);
+              void doUnlock(unlockMinutes);
+            }}
+          />
         )}
       </View>
 
@@ -386,21 +414,36 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
     textAlign: "center",
   },
-  lockActions: { flexDirection: "row", gap: 12, marginTop: 16 },
-  lockBtn: {
+  lockActions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 16 },
+  lockChip: {
     borderWidth: 1,
-    borderColor: C.dot,
+    borderColor: C.border,
     borderRadius: 999,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    minWidth: 90,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  lockChipActive: { borderColor: C.dot, backgroundColor: C.dot },
+  lockChipText: {
+    fontFamily: "SpaceGrotesk",
+    fontSize: 11,
+    color: C.text2,
+    letterSpacing: 1,
+  },
+  lockChipTextActive: { color: C.bg, fontWeight: "700" },
+  lockGo: {
+    backgroundColor: C.dot,
+    borderRadius: 999,
+    paddingHorizontal: 32,
+    paddingVertical: 14,
+    marginTop: 18,
     alignItems: "center",
   },
-  lockBtnText: {
+  lockGoText: {
     fontFamily: "SpaceGrotesk",
     fontSize: 13,
-    color: C.text,
+    color: C.bg,
     letterSpacing: 2,
+    fontWeight: "700",
   },
   bar: {
     flexDirection: "row",
