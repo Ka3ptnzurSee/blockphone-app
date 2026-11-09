@@ -264,7 +264,7 @@ export default function Browser({ onExit, active = true, mini = false, onMini }:
   // gesperrt, bis der Zustand wieder lesbar ist (stateLocked).
   const reloadAll = useCallback(async (p: Platform) => {
     try {
-      const [st, s, ua, sa, q, pq, pu, cm, fc, v] = await Promise.all([
+      const [st, s, ua, sa, q, pq, pu, cm, fc] = await Promise.all([
         ensureLimit(p),
         loadSessionSettings(),
         getUnlockedAt(),
@@ -274,7 +274,6 @@ export default function Browser({ onExit, active = true, mini = false, onMini }:
         loadPostingUsage(),
         loadCommitment(),
         loadFilterConfig(),
-        loadVault(),
       ]);
       setLimits(st);
       setSession(s);
@@ -285,14 +284,24 @@ export default function Browser({ onExit, active = true, mini = false, onMini }:
       setPostingUsage(pu);
       setHardLockedUntil(cm.filterLockedUntil[p] || 0);
       setFilterCfg(fc);
-      setVault(v);
       sessionStartRef.current = Date.now();
       sessionBaseRef.current = (st[p] || freshEntry(p, todayKey())).usedSeconds;
       setStateLocked(false);
     } catch {
       setStateLocked(true);
+      return;
     }
-  }, []);
+    // Vault separat laden: ein Fehler hier degradiert NUR den Tresor („Zugänge
+    // nicht verfügbar"), sperrt aber nicht das Browsen. Der Überschreib-Schutz
+    // bleibt in saveCredential/deleteCredential (re-read via loadVault → wirft
+    // → kein Write).
+    try {
+      setVault(await loadVault());
+    } catch {
+      setVault([]);
+      flash("ZUGÄNGE NICHT VERFÜGBAR");
+    }
+  }, [flash]);
 
   // Initial laden.
   useEffect(() => {

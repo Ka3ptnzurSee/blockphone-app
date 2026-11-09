@@ -22,7 +22,10 @@ function parse(raw: string | null): Credential[] {
   const out: Credential[] = [];
   for (const e of v) {
     const c = normalizeCredential(e);
-    if (c) out.push(c);
+    // Ungültiger Eintrag → werfen statt still überspringen: sonst würde er
+    // beim nächsten saveCredential/deleteCredential dauerhaft verschwinden.
+    if (!c) throw new Error("pb-vault: ungültiger Eintrag");
+    out.push(c);
     if (out.length >= MAX_CREDENTIALS) break;
   }
   return out;
