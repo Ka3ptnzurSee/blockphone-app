@@ -15,9 +15,12 @@
         "CFBundleDisplayName": "Blockphone",
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
-        }
+        },
+        "UIBackgroundModes": [
+          "audio"
+        ]
       },
-      "buildNumber": "117"
+      "buildNumber": "118"
     },
     "android": {
       "package": "com.meister.blockphone",

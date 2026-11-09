@@ -548,6 +548,10 @@ export default function Browser({ onExit }: Props) {
             javaScriptEnabled
             domStorageEnabled
             allowsInlineMediaPlayback
+            // Picture-in-Picture: ohne dieses Flag liefert WKWebView keinen
+            // PiP-Knopf und beendet das Video beim Verlassen der App.
+            allowsPictureInPictureMediaPlayback
+            allowsAirPlayForMediaPlayback
             allowsBackForwardNavigationGestures
             mediaPlaybackRequiresUserAction={false}
             setSupportMultipleWindows={false}

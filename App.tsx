@@ -175,8 +175,14 @@ export default function App() {
   const [mehrSub, setMehrSub] = useState<"commitment" | "schedule" | "guides" | "lifetime" | "friends">("commitment");
   const [now, setNow] = useState(() => new Date());
   const [unlocked, setUnlocked] = useState(false);
+  // Browser-Layer bleibt nach dem ersten Öffnen gemountet (PiP/Video läuft weiter).
+  const [browserMounted, setBrowserMounted] = useState(false);
   const [streak, setStreak] = useState<StreakInfo>({ days: 0 });
   const [gam, setGam] = useState<GamificationInfo | null>(null);
+
+  useEffect(() => {
+    if (tab === "browser") setBrowserMounted(true);
+  }, [tab]);
 
   // Server-Config (aus AsyncStorage, Default = Raspi-AdGuard im Heimnetz)
   const [cfg, setCfg] = useState<Cfg>(DEFAULT_CFG);
@@ -285,14 +291,11 @@ export default function App() {
   // BROWSER = eigener Vollbild-Modus: Header, Tabs und Statusbar fallen weg,
   // die WebView bekommt die volle Höhe (fast Vollbild). Zurück über das ✕ im
   // Browser oder den Tab-Wechsel-Button (führt zu SHIELD).
-  if (tab === "browser") {
-    return (
-      <View style={styles.safe}>
-        <StatusBar style="light" hidden />
-        <Browser onExit={() => setTab("shield")} />
-      </View>
-    );
-  }
+  //
+  // WICHTIG (Picture-in-Picture): Die WebView wird NICHT mehr ausgehängt, wenn
+  // der Tab wechselt. Vorher zerstörte der Unmount das <video>-Element und damit
+  // jede laufende Wiedergabe — PiP konnte nie weiterlaufen. Jetzt bleibt der
+  // Browser-Layer gemountet und wird nur unsichtbar (opacity 0, keine Touches).
 
   const hh = String(now.getHours()).padStart(2, "0");
   const mm = String(now.getMinutes()).padStart(2, "0");
@@ -458,12 +461,29 @@ export default function App() {
           </Pressable>
         </ScrollView>
       )}
+      {/* Browser: einmal geöffnet bleibt er gemountet, damit Video/PiP beim
+          Tab-Wechsel nicht abgewürgt wird. Aktiv = Vollbild über allem,
+          inaktiv = unsichtbar und ohne Touches. */}
+      {browserMounted ? (
+        <View
+          style={[styles.browserLayer, tab === "browser" ? styles.browserOn : styles.browserOff]}
+          pointerEvents={tab === "browser" ? "auto" : "none"}
+        >
+          {tab === "browser" ? <StatusBar style="light" hidden /> : null}
+          <Browser onExit={() => setTab("shield")} />
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
+  // Browser-Layer: aktiv Vollbild über Header/Tabs, inaktiv unsichtbar
+  // (bleibt aber im View-Tree, damit <video>/PiP weiterlaufen).
+  browserLayer: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, backgroundColor: C.bg },
+  browserOn: { opacity: 1, zIndex: 10 },
+  browserOff: { opacity: 0, zIndex: -1 },
   center: { alignItems: "center", justifyContent: "center" },
   header: {
     paddingHorizontal: 20,
