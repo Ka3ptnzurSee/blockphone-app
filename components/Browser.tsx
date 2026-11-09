@@ -296,8 +296,18 @@ export default function Browser({ onExit, active = true }: Props) {
     const onChange = (state: AppStateStatus) => {
       if (state === "active") {
         lockEpochRef.current++;
-        pausedRef.current = false;
-        sessionStartRef.current = Date.now();
+        // Nur wenn der Browser-Tab sichtbar ist, weiterzählen. Sonst bliebe der
+        // Reset der Sitzungsuhr stehen und die verdeckte Zeit würde beim
+        // Zurückwechseln als Nutzung nachgezählt (Überzählung).
+        if (active) {
+          pausedRef.current = false;
+          sessionStartRef.current = Date.now();
+        } else {
+          // Tab liegt verdeckt: sicher pausiert bleiben. Ein unterbrochener
+          // Pause-Flush darf ihn nicht "aufwecken", sonst würde die verdeckte
+          // Zeit beim Zurückwechseln nachgezählt.
+          pausedRef.current = true;
+        }
         setNow(Date.now());
         void reloadAll(platformRef.current).catch(() => {});
       } else {
@@ -309,22 +319,28 @@ export default function Browser({ onExit, active = true }: Props) {
     };
     const sub = AppState.addEventListener("change", onChange);
     return () => sub.remove();
-  }, [flushUsage, reloadAll]);
+  }, [active, flushUsage, reloadAll]);
 
   // Tab-Wechsel oder Sperre: letzte aktive Sekunden sichern, DANN pausieren.
   // Wieder sichtbar/entsperrt: Sitzungsuhr neu aufsetzen und weiterzählen.
   // (Der Browser bleibt sonst für PiP gemountet und frisst die Ration auf.)
   useEffect(() => {
     const mustPause = shouldPauseUsage(active, locked);
-    if (mustPause && !pausedRef.current) {
-      const epoch = ++lockEpochRef.current;
-      void flushUsage().then(() => {
-        if (lockEpochRef.current === epoch) pausedRef.current = true;
-      });
-    } else if (!mustPause && pausedRef.current) {
-      // Laufende Pause-Commits entwerten, sonst setzt ein spätes Flush (Tab war
-      // nur kurz weg) pausedRef wieder auf true und die Zählung stoppt still.
-      lockEpochRef.current++;
+    if (mustPause) {
+      if (!pausedRef.current) {
+        const epoch = ++lockEpochRef.current;
+        void flushUsage().then(() => {
+          if (lockEpochRef.current === epoch) pausedRef.current = true;
+        });
+      }
+      return;
+    }
+    // Läuft weiter: Epoch IMMER entwerten — auch wenn pausedRef noch false ist
+    // (Pause-Flush noch unterwegs). Sonst setzt dessen .then später pausedRef
+    // auf true und die Zählung bliebe still stehen. Nur der Reset der Sitzungsuhr
+    // hängt daran, ob wirklich pausiert war.
+    lockEpochRef.current++;
+    if (pausedRef.current) {
       pausedRef.current = false;
       sessionStartRef.current = Date.now();
     }
