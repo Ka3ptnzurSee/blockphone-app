@@ -265,16 +265,16 @@ export default function Browser({ onExit, active = true }: Props) {
     };
   }, [flushUsage, reloadAll]);
 
-  // 1s-Tick für Countdown + Live-Anzeige. Nur im sichtbaren Tab: der Browser
-  // bleibt für PiP gemountet, soll versteckt aber keine Timer verbrennen.
+  // 1s-Tick für Countdown + Live-Anzeige. Läuft AUCH im versteckten Tab weiter:
+  // sonst würde die Sperr-Prüfung (Session-Limit/Hardlock) einfrieren, während
+  // Video/PiP weiterläuft. Ein setState pro Sekunde ist dafür zu billig.
   useEffect(() => {
-    if (!active) return;
     setNow(Date.now());
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
-  }, [active]);
+  }, []);
 
-  // Checkpoint: alle 30 s persistieren (nur solange der Tab sichtbar ist).
+  // Checkpoint: alle 30 s persistieren (nur solange gezählt wird).
   useEffect(() => {
     if (!active) return;
     const t = setInterval(() => void flushUsage().catch(() => {}), CHECKPOINT_MS);
@@ -290,16 +290,20 @@ export default function Browser({ onExit, active = true }: Props) {
   }, [showChrome]);
 
   // Hintergrund/Display aus: Nutzung nicht weiterzählen (sonst Limit ohne Nutzung weg).
+  // Epoch-Guard: ein spätes background-Flush darf ein schnelles foreground NICHT
+  // wieder pausieren (sonst bliebe die Zählung dauerhaft stehen).
   useEffect(() => {
     const onChange = (state: AppStateStatus) => {
       if (state === "active") {
+        lockEpochRef.current++;
         pausedRef.current = false;
         sessionStartRef.current = Date.now();
         setNow(Date.now());
         void reloadAll(platformRef.current).catch(() => {});
       } else {
+        const epoch = ++lockEpochRef.current;
         void flushUsage().then(() => {
-          pausedRef.current = true;
+          if (lockEpochRef.current === epoch) pausedRef.current = true;
         });
       }
     };
@@ -318,6 +322,9 @@ export default function Browser({ onExit, active = true }: Props) {
         if (lockEpochRef.current === epoch) pausedRef.current = true;
       });
     } else if (!mustPause && pausedRef.current) {
+      // Laufende Pause-Commits entwerten, sonst setzt ein spätes Flush (Tab war
+      // nur kurz weg) pausedRef wieder auf true und die Zählung stoppt still.
+      lockEpochRef.current++;
       pausedRef.current = false;
       sessionStartRef.current = Date.now();
     }
