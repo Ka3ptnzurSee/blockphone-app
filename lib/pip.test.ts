@@ -135,3 +135,78 @@ test("PIP_TRIGGER_SCRIPT: ruft nur den bereits installierten Trigger", () => {
   assert.ok(PIP_TRIGGER_SCRIPT.includes("window.__pbPip"));
   assert.doesNotThrow(() => new Function(PIP_TRIGGER_SCRIPT));
 });
+
+// Sandbox-Helfer: Video-Objekt mit getBoundingClientRect (area() braucht es).
+function sandboxVideo(overrides: Record<string, unknown> = {}) {
+  return {
+    videoWidth: 640,
+    paused: false,
+    ended: false,
+    getBoundingClientRect: () => ({ width: 640, height: 360 }),
+    ...overrides,
+  };
+}
+
+function runPipScript(video: unknown, withBridge = true): string[] {
+  const posted: string[] = [];
+  const windowObj: Record<string, unknown> = { addEventListener: () => {} };
+  if (withBridge) {
+    windowObj.ReactNativeWebView = { postMessage: (s: string) => posted.push(s) };
+  }
+  const sandbox: Record<string, unknown> = {
+    window: windowObj,
+    document: {
+      hidden: false,
+      querySelectorAll: () => [video],
+      addEventListener: () => {},
+      pictureInPictureEnabled: false,
+    },
+    Object,
+    Array,
+    String,
+    JSON,
+  };
+  const fn = new Function(
+    "window",
+    "document",
+    "Object",
+    "Array",
+    "String",
+    "JSON",
+    buildPipScript(),
+  );
+  fn(sandbox.window, sandbox.document, Object, Array, String, JSON);
+  return posted;
+}
+
+test("buildPipScript: webkitSetPresentationMode ohne Exception = Erfolg (kein falsches kein-pip)", () => {
+  const video = sandboxVideo({ webkitSetPresentationMode: () => {} });
+  const msgs = runPipScript(video).map((s) => JSON.parse(s) as { ok: boolean; reason: string; via?: string });
+  assert.ok(msgs.some((m) => m.ok === true && m.via === "webkit"));
+  assert.ok(!msgs.some((m) => m.reason === "kein-pip"));
+});
+
+test("buildPipScript: Autoplay-Rejection wird gemeldet, PiP-Versuch läuft trotzdem weiter", async () => {
+  const video = sandboxVideo({
+    paused: true,
+    play: () => Promise.reject(new Error("NotAllowedError")),
+    webkitSetPresentationMode: () => {},
+  });
+  const posted = runPipScript(video);
+  await new Promise((r) => setImmediate(r)); // Rejection-Callback ist ein Microtask
+  const msgs = posted.map((s) => JSON.parse(s) as { ok: boolean; reason: string; via?: string });
+  assert.ok(msgs.some((m) => m.ok === false && m.reason === "autoplay-blockiert"));
+  assert.ok(msgs.some((m) => m.ok === true && m.via === "webkit"));
+});
+
+test("buildPipScript: fehlende Bridge degradiert ohne Exception (kein Throw nach außen)", () => {
+  const video = sandboxVideo();
+  assert.deepEqual(runPipScript(video, false), []); // Bridge fehlt → nichts verloren, kein Crash
+});
+
+test("buildPipScript: async Status über presentationmodechanged + Autoplay-Grund vorhanden", () => {
+  const js = buildPipScript();
+  assert.ok(js.includes("presentationmodechanged"));
+  assert.ok(js.includes("removeEventListener"));
+  assert.ok(js.includes("autoplay-blockiert"));
+});

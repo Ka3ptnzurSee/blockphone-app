@@ -19,8 +19,12 @@ import {
   buildBeforeContentScript,
   buildEarlyCssScript,
   buildInjectedScript,
+  ledgerAccrue,
+  ledgerSettle,
+  parseBridgeMessage,
   type FilterConfig,
   type Platform,
+  type UsageLedger,
 } from "../lib/browser";
 import { buildCaptureScript, buildFillScript } from "../lib/autofill";
 import { buildPipScript, parsePipMessage, pipStatusText } from "../lib/pip";
@@ -108,6 +112,9 @@ export default function Browser({ onExit, active = true, mini = false, onMini }:
   // Kurze Rückmeldung für den Kleinbild-Knopf (nur ein Text, kein Overlay).
   const [pipNote, setPipNote] = useState<string | null>(null);
   const pipNoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Allgemeine Hinweiszeile (Fehler/Feedback) — separat vom PiP-Status.
+  const [note, setNote] = useState<string | null>(null);
+  const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [loading, setLoading] = useState(true);
   const [blocked, setBlocked] = useState(0);
   const [url, setUrl] = useState("");
@@ -150,6 +157,10 @@ export default function Browser({ onExit, active = true, mini = false, onMini }:
   const lockEpochRef = useRef(0);
   const chromeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const urlRef = useRef("");
+  // Unverbrauchte Sekunden, die ein fehlgeschlagener addUsage nicht verlieren darf.
+  const usageLedgerRef = useRef<UsageLedger>({ pending: 0 });
+  // Genau ein Retry für den Filter-Reinject (Timer, beim Unmount aufgeräumt).
+  const reinjectRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Key erzwingt Neu-Mount bei Plattform-Wechsel (frische Session, keine Alt-State).
   const key = platform;
@@ -214,6 +225,13 @@ export default function Browser({ onExit, active = true, mini = false, onMini }:
     chromeTimerRef.current = setTimeout(() => setChrome(false), CHROME_IDLE_MS);
   }, []);
 
+  // Kurze, automatisch ausblendende Hinweiszeile für Fehler/Feedback.
+  const flash = useCallback((text: string) => {
+    setNote(text);
+    if (noteTimer.current) clearTimeout(noteTimer.current);
+    noteTimer.current = setTimeout(() => setNote(null), 3200);
+  }, []);
+
   // Verbrauchte Sekunden persistieren + Session neu basieren.
   // Serialisiert (Chain), damit parallele Checkpoints nicht doppelt zählen;
   // pausiert bei Sperre (kein Phantom-Verbrauch).
@@ -221,12 +239,20 @@ export default function Browser({ onExit, active = true, mini = false, onMini }:
     const run = flushChainRef.current.then(async () => {
       if (pausedRef.current) return;
       const p = platformRef.current;
-      const s = Math.max(0, Math.floor((Date.now() - sessionStartRef.current) / 1000));
-      if (s <= 0) return;
-      const st = await addUsage(p, s);
+      const elapsed = Math.max(0, Math.floor((Date.now() - sessionStartRef.current) / 1000));
       sessionStartRef.current = Date.now();
-      sessionBaseRef.current = (st[p] || freshEntry(p, todayKey())).usedSeconds;
-      setLimits(st);
+      const total = ledgerAccrue(usageLedgerRef.current, elapsed);
+      if (total <= 0) return;
+      try {
+        const st = await addUsage(p, total);
+        ledgerSettle(usageLedgerRef.current, total, true);
+        sessionBaseRef.current = (st[p] || freshEntry(p, todayKey())).usedSeconds;
+        setLimits(st);
+      } catch {
+        // addUsage fehlgeschlagen: Sekunden bleiben im Ledger und werden beim
+        // nächsten Flush nachgeliefert — nichts geht verloren.
+        ledgerSettle(usageLedgerRef.current, total, false);
+      }
     });
     flushChainRef.current = run.catch(() => {});
     return run;
@@ -298,6 +324,8 @@ export default function Browser({ onExit, active = true, mini = false, onMini }:
     return () => {
       if (chromeTimerRef.current) clearTimeout(chromeTimerRef.current);
       if (pipNoteTimer.current) clearTimeout(pipNoteTimer.current);
+      if (noteTimer.current) clearTimeout(noteTimer.current);
+      if (reinjectRetryRef.current) clearTimeout(reinjectRetryRef.current);
     };
   }, [showChrome]);
 
@@ -380,7 +408,7 @@ export default function Browser({ onExit, active = true, mini = false, onMini }:
       setPickerOpen(false);
       showChrome();
     } catch {
-      /* ignorieren — Plattform-Wechsel bleibt aus */
+      flash("PLATTFORM-WECHSEL FEHLGESCHLAGEN");
     }
   }
 
@@ -446,19 +474,23 @@ export default function Browser({ onExit, active = true, mini = false, onMini }:
       void markUnlocked(t); // persistieren: sonst hebt AppState-Reload den Cooldown auf
       void markSessionStarted(0);
     } catch {
-      /* ignorieren — UI bleibt auf altem Stand */
+      flash("SPERREN FEHLGESCHLAGEN");
     }
   }
 
   // Posting-Fenster (Scheduled Access) öffnen.
   async function openWindow() {
-    const next = await openPostingWindow(posting);
-    if (!next) return;
-    setManualLocked(false);
-    setPostingUsage(next);
-    const t = Date.now();
-    setStartedAt(t);
-    void markSessionStarted(t);
+    try {
+      const next = await openPostingWindow(posting);
+      if (!next) return;
+      setManualLocked(false);
+      setPostingUsage(next);
+      const t = Date.now();
+      setStartedAt(t);
+      void markSessionStarted(t);
+    } catch {
+      flash("ZEITFENSTER: ÖFFNEN FEHLGESCHLAGEN");
+    }
   }
 
   // System-Kleinbild starten: iOS WKWebView hat keine PiP-API für Seiten, also
@@ -468,8 +500,12 @@ export default function Browser({ onExit, active = true, mini = false, onMini }:
     setPipNote("KLEINBILD…");
     if (pipNoteTimer.current) clearTimeout(pipNoteTimer.current);
     pipNoteTimer.current = setTimeout(() => setPipNote(null), 2600);
+    if (!webviewRef.current) {
+      setPipNote("KLEINBILD: WEBVIEW NICHT BEREIT");
+      return;
+    }
     try {
-      webviewRef.current?.injectJavaScript(buildPipScript());
+      webviewRef.current.injectJavaScript(buildPipScript());
     } catch {
       setPipNote("KLEINBILD: WEBVIEW WEG");
     }
@@ -477,15 +513,8 @@ export default function Browser({ onExit, active = true, mini = false, onMini }:
   }
 
   function onMessage(e: { nativeEvent: { data: string } }) {
-    let m: Record<string, unknown> | null = null;
-    try {
-      const parsed = JSON.parse(e.nativeEvent.data);
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        m = parsed as Record<string, unknown>;
-      }
-    } catch {
-      return;
-    }
+    // JSON.parse erst NACH dem Größen-Cap (RAM-/DoS-Schutz).
+    const m = parseBridgeMessage(e.nativeEvent.data);
     if (!m) return;
 
     // 0) Kleinbild-Rückmeldung aus dem injizierten Script.
@@ -505,11 +534,29 @@ export default function Browser({ onExit, active = true, mini = false, onMini }:
 
     // 2) Health-Check von filter.js: CSS/JS nachinjizieren, wenn es verschwunden ist.
     if (typeof m.reason === "string" && m.platform === platformRef.current) {
+      const injectOnce = (): boolean => {
+        if (!webviewRef.current) return false;
+        webviewRef.current.injectJavaScript(injected);
+        return true;
+      };
       try {
-        webviewRef.current?.injectJavaScript(injected);
+        if (injectOnce()) return;
       } catch {
         /* WebView evtl. gerade nicht da */
       }
+      flash("FILTER WEG — NEU LADEN");
+      // Genau ein verzögerter Retry (die WebView bekommt kurz Zeit).
+      if (reinjectRetryRef.current) return;
+      reinjectRetryRef.current = setTimeout(() => {
+        reinjectRetryRef.current = null;
+        let ok = false;
+        try {
+          ok = injectOnce();
+        } catch {
+          ok = false;
+        }
+        flash(ok ? "FILTER WIEDER AKTIV" : "FILTER: NEU LADEN FEHLGESCHLAGEN");
+      }, 400);
       return;
     }
 
@@ -552,15 +599,23 @@ export default function Browser({ onExit, active = true, mini = false, onMini }:
       updatedAt: Date.now(),
     });
     if (!c) return;
-    const vs = await saveCredential(c);
-    setVault(vs);
-    setOffer(null);
-    setVaultOpen(false);
+    try {
+      const vs = await saveCredential(c);
+      setVault(vs);
+      setOffer(null);
+      setVaultOpen(false);
+    } catch {
+      flash("ZUGANG SPEICHERN FEHLGESCHLAGEN");
+    }
   }
 
   async function onDeleteCred(c: Credential) {
-    const vs = await deleteCredential(c.host, c.username);
-    setVault(vs);
+    try {
+      const vs = await deleteCredential(c.host, c.username);
+      setVault(vs);
+    } catch {
+      flash("ZUGANG LÖSCHEN FEHLGESCHLAGEN");
+    }
   }
 
   function onFillCred(c: Credential) {
@@ -630,7 +685,16 @@ export default function Browser({ onExit, active = true, mini = false, onMini }:
               setLoading(false);
               showChrome();
             }}
-            onError={() => setLoading(false)}
+            onError={(e: { nativeEvent: { domain?: string; code?: number; description?: string } }) => {
+              setLoading(false);
+              const d = e.nativeEvent;
+              flash(
+                "LADEFEHLER" +
+                  (d.domain ? ` · ${d.domain}` : "") +
+                  (d.code != null ? ` ${d.code}` : "") +
+                  (d.description ? ` · ${d.description}` : ""),
+              );
+            }}
             style={styles.webviewInner}
           />
         )}
@@ -681,6 +745,11 @@ export default function Browser({ onExit, active = true, mini = false, onMini }:
           {pipNote ? (
             <View style={styles.pipNote} pointerEvents="none">
               <Text style={styles.pipNoteText}>{pipNote}</Text>
+            </View>
+          ) : null}
+          {note ? (
+            <View style={styles.pipNote} pointerEvents="none">
+              <Text style={styles.pipNoteText}>{note}</Text>
             </View>
           ) : null}
         </SafeAreaView>

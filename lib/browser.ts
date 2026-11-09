@@ -139,3 +139,48 @@ export function buildInjectedScript(platform: Platform, cfg: FilterConfig): stri
 
   return `${injectCss}\n;(function(){ try { ${js} } catch(e){} })();${bgBlock}\ntrue;`;
 }
+
+// ─── Brücken-Nachrichten (WebView → RN) ───────────────────────────────────────
+// Obergrenze für onMessage-Payloads: alles Größere wird verworfen, BEVOR es
+// JSON.parse erreicht (RAM-/DoS-Schutz gegen feindliche WebView-Inhalte).
+export const MAX_BRIDGE_MESSAGE_BYTES = 65536;
+
+export function parseBridgeMessage(data: string): Record<string, unknown> | null {
+  if (typeof data !== "string" || data.length === 0 || data.length > MAX_BRIDGE_MESSAGE_BYTES) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(data);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    /* kein JSON / kaputt → verwerfen */
+  }
+  return null;
+}
+
+// ─── Unsaved-Usage-Ledger ─────────────────────────────────────────────────────
+// Ein fehlgeschlagenes addUsage darf keine Sekunden verlieren: verbrauchte Zeit
+// wird gepuffert und beim nächsten Flush nachgeliefert (statt still verworfen).
+export type UsageLedger = { pending: number };
+
+export function ledgerAccrue(ledger: UsageLedger, elapsed: number): number {
+  const total = Math.max(0, ledger.pending + Math.max(0, elapsed));
+  ledger.pending = total;
+  return total;
+}
+
+export function ledgerSettle(ledger: UsageLedger, total: number, ok: boolean): void {
+  if (ok) ledger.pending = Math.max(0, ledger.pending - total);
+  // ok=false: pending bleibt → Sekunden werden beim nächsten Flush nachgeliefert.
+}
+
+// ─── Browser-Tab verlassen ─────────────────────────────────────────────────────
+// KLEIN/Verlassen darf nie im Browser-Tab enden, sonst bleibt der Layer fullscreen
+// und KLEIN wäre ein No-op. Immer auf einen existierenden Nicht-Browser-Tab.
+export const BROWSER_TAB = "browser";
+
+export function browserExitTab<T extends string>(activeTab: T): T | "shield" {
+  return activeTab === BROWSER_TAB ? "shield" : activeTab;
+}

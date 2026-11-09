@@ -16,6 +16,7 @@ import { useFonts } from "expo-font";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import LottieView from "lottie-react-native";
 import { isAllowedUrl } from "./lib/blocker";
+import { browserExitTab } from "./lib/browser";
 import Browser from "./components/Browser";
 import PinGate from "./components/PinGate";
 import LimitSettings from "./components/LimitSettings";
@@ -140,9 +141,15 @@ function UnlockFlow({ onUnlock }: { onUnlock: () => void }) {
 
   useEffect(() => {
     (async () => {
-      const [pinned, inWindow] = await Promise.all([hasPin(), withinReInterventionWindow()]);
-      // Erster Start (noch kein PIN) oder gerade entsperrt → direkt PIN.
-      setStep(!pinned || inWindow ? "pin" : "intervention");
+      try {
+        const [pinned, inWindow] = await Promise.all([hasPin(), withinReInterventionWindow()]);
+        // Erster Start (noch kein PIN) oder gerade entsperrt → direkt PIN.
+        setStep(!pinned || inWindow ? "pin" : "intervention");
+      } catch {
+        // Speicher-Lesefehler: nicht im ewigen Spinner hängen bleiben — PIN-Gate
+        // ist immer bedienbar (ohne gesetzten PIN öffnet es direkt).
+        setStep("pin");
+      }
     })();
   }, []);
 
@@ -164,8 +171,13 @@ function UnlockFlow({ onUnlock }: { onUnlock: () => void }) {
 const MINI_W = 168;
 const MINI_H = 300;
 const MINI_PAD = 8;
+// Griff/✕ des Kleinbilds sitzen 26 px ÜBER dem Fenster — minimales y so, dass
+// sie nicht über den oberen Bildschirmrand rutschen.
+const MINI_MIN_Y = 26 + MINI_PAD;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), Math.max(lo, hi));
+
+type TabKey = "glyph" | "devices" | "server" | "browser" | "limits" | "shield" | "mehr";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // App
@@ -178,9 +190,7 @@ export default function App() {
     SpaceGroteskBold: require("./assets/fonts/SpaceGrotesk-Bold.ttf"),
   });
 
-  const [tab, setTab] = useState<
-    "glyph" | "devices" | "server" | "browser" | "limits" | "shield" | "mehr"
-  >("glyph");
+  const [tab, setTab] = useState<TabKey>("glyph");
   const [mehrSub, setMehrSub] = useState<"commitment" | "schedule" | "guides" | "lifetime" | "friends">("commitment");
   const [now, setNow] = useState(() => new Date());
   const [unlocked, setUnlocked] = useState(false);
@@ -205,12 +215,12 @@ export default function App() {
   useEffect(() => {
     if (!mini) return;
     const maxX = Math.max(MINI_PAD, winW - MINI_W - MINI_PAD);
-    const maxY = Math.max(MINI_PAD, winH - MINI_H - MINI_PAD);
+    const maxY = Math.max(MINI_MIN_Y, winH - MINI_H - MINI_PAD);
     setMiniPos((p) => {
       const next =
         p.x > 0 || p.y > 0
-          ? { x: clamp(p.x, MINI_PAD, maxX), y: clamp(p.y, MINI_PAD, maxY) }
-          : { x: maxX - 4, y: Math.max(MINI_PAD, maxY - 104) };
+          ? { x: clamp(p.x, MINI_PAD, maxX), y: clamp(p.y, MINI_MIN_Y, maxY) }
+          : { x: maxX - 4, y: Math.max(MINI_MIN_Y, maxY - 104) };
       miniPosRef.current = next;
       return next;
     });
@@ -230,10 +240,10 @@ export default function App() {
       onPanResponderMove: (_e, g) => {
         const { w, h } = dimsRef.current;
         const maxX = Math.max(MINI_PAD, w - MINI_W - MINI_PAD);
-        const maxY = Math.max(MINI_PAD, h - MINI_H - MINI_PAD);
+        const maxY = Math.max(MINI_MIN_Y, h - MINI_H - MINI_PAD);
         const next = {
           x: clamp(dragStartRef.current.x + g.dx, MINI_PAD, maxX),
-          y: clamp(dragStartRef.current.y + g.dy, MINI_PAD, maxY),
+          y: clamp(dragStartRef.current.y + g.dy, MINI_MIN_Y, maxY),
         };
         miniPosRef.current = next;
         setMiniPos(next);
@@ -277,18 +287,24 @@ export default function App() {
 
   useEffect(() => {
     if (unlocked) {
-      loadStreak().then(setStreak).catch(() => {});
-      loadGamification().then(setGam).catch(() => {});
+      loadStreak().then(setStreak).catch(() => setStreak({ days: 0 }));
+      loadGamification().then(setGam).catch(() => setGam(null));
     }
   }, [unlocked]);
 
+  const refreshBusyRef = useRef(false);
+
   async function refresh() {
+    if (refreshBusyRef.current) return; // In-Flight-Guard: kein paralleler Poll
+    refreshBusyRef.current = true;
     setError(null);
     try {
       setDevices(await getStatus(cfg));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setDevices(null);
+    } finally {
+      refreshBusyRef.current = false;
     }
   }
 
@@ -540,10 +556,13 @@ export default function App() {
           <Browser
             active={tab === "browser"}
             mini={mini && tab !== "browser"}
-            onMini={() => setMini(true)}
+            onMini={() => {
+              setMini(true);
+              setTab(browserExitTab(tab));
+            }}
             onExit={() => {
               setMini(false);
-              setTab("shield");
+              setTab(browserExitTab(tab));
             }}
           />
         </View>
