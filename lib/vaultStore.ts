@@ -46,11 +46,10 @@ export async function loadVault(): Promise<Credential[]> {
 
 async function write(list: Credential[]): Promise<Credential[]> {
   const capped = list.slice(0, MAX_CREDENTIALS);
-  try {
-    await SecureStore.setItemAsync(KEY, JSON.stringify(capped));
-  } catch {
-    /* Keychain nicht verfügbar → Liste bleibt im Speicher, kein Crash */
-  }
+  // Fehler NICHT schlucken: sonst zeigen onSaveOffer/onDeleteCred „Erfolg" an,
+  // obwohl nichts persistiert wurde. Fail-visible statt stiller Datenverlust
+  // (konsistent zu limitStore — der Aufrufer behandelt den Fehler).
+  await SecureStore.setItemAsync(KEY, JSON.stringify(capped));
   return capped;
 }
 
