@@ -11,8 +11,12 @@ div[role="tablist"] > div:has(svg[aria-label="Reels"]) { display: none !importan
 /* Reels in feed — collapse to preserve infinite scroll. Not on a single-post
    route (/reel/<id>/, /p/<id>/): filter.js marks those on <html>, because the
    shared-reel "Post" page is itself an <article> full of /reel/ links and
-   collapsing it left the whole page black. */
-html:not([data-dull-single-post]) article:has(a[href*="/reel/"]) { height: 0 !important; min-height: 0 !important; overflow: hidden !important; padding: 0 !important; margin: 0 !important; border: 0 !important; visibility: hidden !important; opacity: 0 !important; }
+   collapsing it left the whole page black.
+   A reel links /reel/<code>/ or /reels/<code>/. Not /reels/audio/<id>/,
+   which a photo or carousel post with music links: those stay. Same links
+   as REEL_LINK in filter.js; keep the two in step.
+   1px, not 0: see [data-dull-collapsed] below. */
+html:not([data-dull-single-post]) article:has(a[href*="/reel/"], a[href*="/reels/"]:not([href*="/reels/audio/"]):not([href$="/reels/"])) { height: 1px !important; min-height: 1px !important; overflow: hidden !important; padding: 0 !important; margin: 0 !important; border: 0 !important; visibility: hidden !important; opacity: 0 !important; }
 
 /* Reels section headers in feed */
 main section:has(h2):has(a[href*="/reels/"]) { display: none !important; }
@@ -72,9 +76,9 @@ body { padding-bottom: 0 !important; }
    124px wrapper is gone. The `>` direct-child operators stop the selectors
    from also matching every div up the tree. The story viewer itself
    (/stories/<user>/) has no Story-by buttons, so this is path-safe.
-   Friends-Only story compose (html[data-dull-story-compose], see the
-   friendsOnly group) needs the tray's "Your story" tile, so it stands down
-   there; filter.js hides the other people's tiles individually instead. */
+   Story compose (html[data-dull-story-compose], see below) needs the
+   tray's "Your story" tile, so it stands down there; filter.js hides the
+   other people's tiles individually instead. */
 html:not([data-dull-story-compose]) div:has(> div > div[role="button"]:is([aria-label^="Story by " i], [aria-label^="Historia de " i], [aria-label^="Story von " i], [aria-label^="Geschichte von " i])),
 html:not([data-dull-story-compose]) div:has(> div > div > div[role="button"]:is([aria-label^="Story by " i], [aria-label^="Historia de " i], [aria-label^="Story von " i], [aria-label^="Geschichte von " i])) { display: none !important; }
 /* DULL_GROUP_END:stories */
@@ -93,19 +97,29 @@ html:not([data-dull-story-compose]) div:has(> div > div > div[role="button"]:is(
    redirect on initial load and SPA navigation. */
 h1:has([aria-haspopup="menu"]),
 h1:has(a[href="/"] svg[aria-label="Back"]) { display: none !important; }
+/* DULL_GROUP_END:friendsOnly */
 
-/* Story compose. Instagram's Following variant renders no stories tray, and
-   the tray's "Your story" tile is where the mobile website starts a new
-   story, so Friends-Only used to remove story posting entirely. filter.js
-   puts an "add to your story" button on Following; it loads Home with
-   <html data-dull-story-compose> (set at document start, before first
-   paint) and this block hides every pixel of that page except the stories
-   tray, Instagram's own dialogs and full-screen overlays (the composer), and
-   Dull's bar. visibility rather than display: a visible descendant of a
-   hidden ancestor still paints and still takes taps, so the tray works
-   without Dull knowing anything about the layout around it. The feed is
-   present in the DOM but never visible or tappable, and the page cannot
-   scroll. */
+/* DULL_GROUP_START:suggested */
+/* Hide Suggested Posts opens Home on Following too (homeOpensFollowing in
+   filter.js), so the same switcher goes: For You would only bounce back. */
+h1:has([aria-haspopup="menu"]),
+h1:has(a[href="/"] svg[aria-label="Back"]) { display: none !important; }
+/* DULL_GROUP_END:suggested */
+
+/* Story compose, for Home on Following (Friends-Only Mode, Hide Suggested
+   Posts). Always on: every rule is scoped to an attribute or id that
+   filter.js only sets in those modes. Instagram's Following variant renders
+   no stories tray, or one without "Your story", and that tile is where the
+   mobile website starts a new story, so Friends-Only used to remove story
+   posting entirely. filter.js puts a stories button on Following; it
+   loads Home with <html data-dull-story-compose> (set at document start,
+   before first paint) and this block hides every pixel of that page except
+   the stories tray, Instagram's own dialogs and full-screen overlays (the
+   composer), and Dull's bar. visibility rather than display: a visible
+   descendant of a hidden ancestor still paints and still takes taps, so the
+   tray works without Dull knowing anything about the layout around it.
+   The feed is present in the DOM but never visible or tappable, and the
+   page cannot scroll. */
 html[data-dull-story-compose],
 html[data-dull-story-compose] body { overflow: hidden !important; }
 html[data-dull-story-compose] body { visibility: hidden !important; }
@@ -163,11 +177,173 @@ html[data-dull-story-compose] [data-dull-story-friend] { display: none !importan
   #dull-story-compose-entry { background: #262626; color: #f5f5f5; }
 }
 
-/* DULL_GROUP_END:friendsOnly */
+/* Save to collection (filter.js, "Save to collection"). Always on: every
+   rule is scoped to an id filter.js only creates after a tap on Save. The
+   bar sits above Instagram's 50px bottom nav. */
+#dull-collection-bar {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 62px);
+  z-index: 2147483645;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 10px 10px 16px;
+  border-radius: 14px;
+  background: #262626;
+  color: #fff;
+  font: 400 14px/1.35 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+}
+#dull-collection-bar span { flex: 1 1 auto; }
+#dull-collection-bar button,
+#dull-collection-sheet button {
+  -webkit-appearance: none;
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+  font: 600 14px -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+#dull-collection-bar button {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border-radius: 9px;
+  background: #fff;
+  color: #000;
+}
+#dull-collection-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483646;
+  background: rgba(0, 0, 0, 0.45);
+  touch-action: none;
+}
+#dull-collection-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2147483647;
+  display: flex;
+  flex-direction: column;
+  max-height: 70vh;
+  padding: 8px 0 calc(env(safe-area-inset-bottom, 0px) + 12px);
+  border-radius: 16px 16px 0 0;
+  background: #fff;
+  color: #000;
+  font: 400 15px/1.35 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.2);
+}
+#dull-collection-sheet .dull-collection-header {
+  display: flex;
+  align-items: center;
+  padding: 8px 16px 12px;
+}
+#dull-collection-sheet h2 {
+  flex: 1 1 auto;
+  margin: 0;
+  font: 600 16px -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+}
+#dull-collection-done {
+  padding: 6px 4px;
+  background: none;
+  color: #0095f6;
+}
+#dull-collection-status {
+  margin: 0;
+  padding: 4px 16px 12px;
+  color: #737373;
+}
+#dull-collection-status[hidden] { display: none; }
+#dull-collection-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+#dull-collection-sheet .dull-collection-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 8px 16px;
+  background: none;
+  color: inherit;
+  text-align: left;
+  font-weight: 400;
+  font-size: 15px;
+}
+#dull-collection-sheet .dull-collection-thumb {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #efefef;
+}
+#dull-collection-sheet .dull-collection-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+#dull-collection-sheet .dull-collection-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#dull-collection-sheet .dull-collection-check { flex: 0 0 auto; font-size: 18px; color: #0095f6; }
+#dull-collection-sheet .dull-collection-footer { padding: 8px 16px 0; }
+#dull-collection-new {
+  width: 100%;
+  padding: 12px;
+  border-radius: 10px;
+  background: #efefef;
+  color: #000;
+}
+#dull-collection-form { display: flex; gap: 8px; }
+#dull-collection-form input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid #dbdbdb;
+  border-radius: 10px;
+  background: #fff;
+  color: #000;
+  font: 400 16px -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+}
+#dull-collection-form button {
+  flex: 0 0 auto;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: #0095f6;
+  color: #fff;
+}
+#dull-collection-form button:disabled { opacity: 0.5; }
+@media (prefers-color-scheme: dark) {
+  #dull-collection-bar { background: #efefef; color: #000; }
+  #dull-collection-bar button { background: #000; color: #fff; }
+  #dull-collection-sheet { background: #262626; color: #f5f5f5; }
+  #dull-collection-status { color: #a8a8a8; }
+  #dull-collection-sheet .dull-collection-thumb { background: #363636; }
+  #dull-collection-new { background: #363636; color: #f5f5f5; }
+  #dull-collection-form input { background: #121212; border-color: #363636; color: #f5f5f5; }
+}
 
 /* Elements filter.js collapsed. Inline styles do the work; this keeps them
-   collapsed if Instagram's React re-render rewrites the inline style. */
-[data-dull-collapsed] { height: 0 !important; min-height: 0 !important; max-height: 0 !important; overflow: hidden !important; padding: 0 !important; margin: 0 !important; border: 0 !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }
+   collapsed if Instagram's React re-render rewrites the inline style.
+   1px tall, never 0: Instagram's Home feed keeps a few posts mounted and
+   swaps the rest for spacers, but with zero-height posts in the list it
+   unmounted none, so the page grew with every swipe (manifest notes,
+   2.4.1). */
+[data-dull-collapsed] { height: 1px !important; min-height: 1px !important; max-height: 1px !important; overflow: hidden !important; padding: 0 !important; margin: 0 !important; border: 0 !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }
+
+/* The feed stops at the end-of-feed "Suggested posts" heading: the posts
+   after it take no space, and no bounce at the end lets Instagram load
+   another page of them (filter.js hideSuggestedPostsAfterBoundary). */
+[data-dull-collapsed="feed-end"] { display: none !important; }
+html[data-dull-home][data-dull-feed-end],
+html[data-dull-home][data-dull-feed-end] body { overscroll-behavior-y: none !important; }
 
 /* Open in App banners and login walls (always on — functional, not content filtering) */
 /* NOTE: Do NOT hide div[role="dialog"]:has(a[href*="/accounts/login"]) — it matches the actual login form */

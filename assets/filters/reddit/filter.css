@@ -82,6 +82,12 @@ shreddit-async-loader[bundlename="xpromo_nsfw_blocking_modal"] { display: none !
    prompt. From uBO uAssets annoyances-others.txt. */
 div[id*="_xpromo_nsfw_blocking_"],
 div.prompt:has(slot[name="view-in-app-button"]) { display: none !important; }
+/* Blocking app wall for signed-out visitors ("Get the app to keep using
+   Reddit"): hide the sheet <configured-xpromo-modal> portals into the page
+   and lift the scroll lock it puts on body. filter.js then dismisses it
+   through Reddit. */
+.configured-xpromo { display: none !important; }
+body.rpl-scroll-lock:has(.configured-xpromo) { overflow-y: auto !important; }
 div[role="dialog"]:has(a[href*="app.link"]),
 div[role="banner"]:has(a[href*="play.google.com"]),
 div[role="banner"]:has(a[href*="apps.apple.com"]) { display: none !important; }

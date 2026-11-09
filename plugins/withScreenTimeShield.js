@@ -8,7 +8,14 @@
 
 const { withEntitlementsPlist } = require("@expo/config-plugins");
 
+// Family Controls ist ein von Apple zu genehmigendes Entitlement. Ohne Freigabe
+// fehlt es im App-Store-Profil und das Signieren schlägt fehl. Deshalb nur
+// aktiv, wenn der System-Shield ausdrücklich gebaut werden soll:
+//   BLOCKPHONE_SYSTEM_SHIELD=1 eas build -p ios --profile production
+const ENABLED = process.env.BLOCKPHONE_SYSTEM_SHIELD === "1";
+
 module.exports = function withScreenTimeShield(config) {
+  if (!ENABLED) return config;
   return withEntitlementsPlist(config, (cfg) => {
     // Screen-Time / Family Controls (iOS 16+). Ohne dieses Entitlement
     // schlägt AuthorizationCenter.requestAuthorization fehl.

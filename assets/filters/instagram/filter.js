@@ -8,6 +8,15 @@
   // the flag unset and the next reinject can recover.
   if (window.__dullPlatformInit_instagram) return;
   var cfg = window.__dullConfig || {};
+  /* Dull's own copy on the page, in the app's language: FilterService
+     passes it in cfg.strings, keyed like Localizable.xcstrings. Any key it
+     does not pass, and every key on Android, which shares this file, keeps
+     the English here. */
+  var strings = cfg.strings || {};
+  function copy(key, english) {
+    var value = strings[key];
+    return typeof value === 'string' && value ? value : english;
+  }
   var processed = new WeakSet();
   var __dullBlockedCount = 0;
   var __dullCountPending = false;
@@ -48,28 +57,45 @@
     }, 500);
   }
 
-  /* Dull's own injected controls (story compose entry and bar) sit among
-     Instagram's nodes and must never be swept up by a sibling walk. */
+  /* Dull's own injected controls (story compose entry and bar, collection
+     bar and sheet) sit among Instagram's nodes and must never be swept up
+     by a sibling walk. */
   function isDullOwned(el) {
-    return !!(el && el.id && el.id.indexOf('dull-story-compose') === 0);
+    return !!(el && el.id && (el.id.indexOf('dull-story-compose') === 0 ||
+      el.id.indexOf('dull-collection') === 0));
+  }
+
+  /* At 1px Instagram unmounts collapsed posts and mounts new nodes when
+     they scroll back; a post counts once however often that happens. */
+  var countedPermalinks = Object.create(null);
+  function countCollapsedPost(el) {
+    var permalink = el.tagName === 'ARTICLE' ? postPermalink(el) : null;
+    if (permalink) {
+      if (countedPermalinks[permalink]) return;
+      countedPermalinks[permalink] = true;
+    }
+    __dullBlockedCount++;
+    reportCount();
   }
 
   /* Collapsed elements are also tagged with data-dull-collapsed, which
      filter.css hides with a stylesheet rule. Instagram's React tree rewrites
      inline style on re-render; the element then stayed in `processed` and was
      never collapsed again, so the same post could be hidden on one load and
-     back on the next. The attribute survives a style rewrite. */
+     back on the next. The attribute survives a style rewrite.
+     1px rather than 0, as in filter.css: with zero-height posts in it,
+     Instagram's feed stops unmounting posts that scrolled away, and the page
+     keeps growing. */
   function collapseElement(el, reason) {
     if (isDullOwned(el)) return;
     if (processed.has(el)) return;
     processed.add(el);
-    __dullBlockedCount++;
-    reportCount();
+    countCollapsedPost(el);
     try { el.setAttribute('data-dull-collapsed', reason || 'filtered'); } catch(e) {}
     var s = el.style;
-    s.setProperty('height', '0', 'important');
-    s.setProperty('min-height', '0', 'important');
-    s.setProperty('max-height', '0', 'important');
+    s.setProperty('height', '1px', 'important');
+    s.setProperty('min-height', '1px', 'important');
+    s.setProperty('max-height', '1px', 'important');
     s.setProperty('overflow', 'hidden', 'important');
     s.setProperty('padding', '0', 'important');
     s.setProperty('margin', '0', 'important');
@@ -79,12 +105,14 @@
     s.setProperty('pointer-events', 'none', 'important');
   }
 
-  function hideEl(el) {
+  function hideEl(el, uncounted) {
     if (isDullOwned(el)) return;
     if (processed.has(el)) return;
     processed.add(el);
-    __dullBlockedCount++;
-    reportCount();
+    if (!uncounted) {
+      __dullBlockedCount++;
+      reportCount();
+    }
     el.style.setProperty('display', 'none', 'important');
   }
 
@@ -98,8 +126,12 @@
      never hit this because it is not an <article>. Mark the route on <html>
      so those rules stand down there; the reel itself stays governed by
      enforceSingleReel() and lockReelsPager(). Reported on UserJot
-     2026-09-01, reproduced logged in on 2026-09-08. */
-  var SINGLE_POST_ROUTE = /^\/(?:reel|reels|p)\/[^\/]+/;
+     2026-09-01, reproduced logged in on 2026-09-08.
+     The profile and saved grids link /<user>/reel/<id>/ and
+     /<user>/p/<id>/, the same page under the owner's name, and a saved
+     reel opened from the saved tab went black the same way (UserJot
+     2026-10, reproduced logged in on 2026-10-15). */
+  var SINGLE_POST_ROUTE = /^(?:\/[A-Za-z0-9._]+)?\/(?:reel|reels|p)\/[^\/]+/;
   function isSinglePostRoute() {
     return SINGLE_POST_ROUTE.test(window.location.pathname);
   }
@@ -110,6 +142,13 @@
     else root.removeAttribute('data-dull-single-post');
   }
 
+  /* A reel links /reel/<code>/ or /reels/<code>/, often after the
+     username. A photo or carousel post with music links
+     /reels/audio/<id>/ in its header, and matching any "/reel" link hid
+     every one of those friends' posts too. Same links as the reels rule in
+     filter.css; keep the two in step. */
+  var REEL_LINK = 'a[href*="/reel/"], a[href*="/reels/"]:not([href*="/reels/audio/"]):not([href$="/reels/"])';
+
   function processArticles() {
     if (!cfg.reels) return;
     if (isSinglePostRoute()) return;
@@ -117,14 +156,14 @@
     for (var a = 0; a < articles.length; a++) {
       var article = articles[a];
       if (processed.has(article)) continue;
-      var links = article.querySelectorAll('a[href*="/reel"]');
-      if (links.length > 0) {
-        collapseElement(article);
-        try { var vids = article.querySelectorAll('video'); for (var v = 0; v < vids.length; v++) vids[v].pause(); } catch(e) {}
-        continue;
-      }
       var ariaLabel = (article.getAttribute('aria-label') || '').toLowerCase();
-      if (ariaLabel.includes('reel')) collapseElement(article);
+      if (!article.querySelector(REEL_LINK) && !ariaLabel.includes('reel')) continue;
+      collapseElement(article, 'reel');
+      /* Remembered like a labelled post, so the node Instagram mounts when
+         it scrolls back is collapsed at its first layout, also when only
+         its label made it a reel. */
+      rememberCollapsedPost(article, 'reel');
+      pauseVideos(article);
     }
   }
 
@@ -151,7 +190,19 @@
      post's main media, skipping avatars, and accepts a label anywhere in that
      header region regardless of tag. The before-media rule is unchanged in
      spirit: a caption, which always sits below the media, can still never
-     collapse a post. Labels are matched whole, or as "label · ..." heads. */
+     collapse a post. Labels are matched whole, or as "label · ..." heads.
+
+     What broke after that (2026-10, three more UserJot users after 1.9.3
+     shipped, "my main feed is mostly ads"): users' screenshots show the
+     English label as "Ad", which the table left out, and the label is server
+     text Instagram can draw out of reach. PolarisSponsoredLabel switches to
+     GHLSVGText behind an ad-blocker gate: the text goes into an <svg> in an
+     offscreen portal on <body>, and the post header only holds an
+     <svg><use> pointing at it, so the post contains no label at all.
+     Instagram also logs every ad it finds hidden (usePolarisSponsoredElTracker).
+     So the first signal is no longer text: it is the post header's React
+     props (see isAdByReactProps). The label and the CTA link stay as
+     fallbacks. */
 
   /* Kept in step with FACEBOOK_AD_TEXT in facebook/filter.js. Instagram
      localizes this label to the *account's* language, which is independent of
@@ -160,6 +211,10 @@
      'constructor', 'toString' and friends, so a lookup on one of those keys
      returns a truthy prototype member and misreads ordinary text as an ad. */
   var sponsoredMarkers = [
+    /* Instagram's English label in users' 2026-09 screenshots. Safe bare
+       here, unlike on Facebook's text scan: only a whole label in the
+       header region counts, and username and location links are skipped. */
+    'ad',
     'sponsored', 'promoted',
     'gesponsert', 'anzeige', 'werbung',
     'publicidad', 'patrocinado', 'patrocinada', 'anuncio',
@@ -168,8 +223,7 @@
     'gesponsord', 'advertentie',
     'sponsitud', 'reklaam',
     /* uBO uAssets filters-mobile.txt, the m.facebook.com sponsored rules;
-       Meta uses the same strings on Instagram. Same set as FACEBOOK_AD_TEXT
-       minus the bare 'ad', which is too easily a username or a word. */
+       Meta uses the same strings on Instagram. Same set as FACEBOOK_AD_TEXT. */
     'sponsorlu', 'sponsorowane', 'geborg', 'bersponsor', 'ditaja',
     'disponsori', 'giisponsoran', 'sponzorováno', 'sponzorované',
     'sponsoreret', 'may sponsor', 'sponzorirano', 'hirdetés', 'sponset',
@@ -363,8 +417,53 @@
     return false;
   }
 
+  /* First ad signal: Instagram's own data, read from React. The feed card
+     hands its ad fragment to PolarisPostHeader.next.react as adFragmentKey,
+     null for every other post, and the same value decides whether the CTA
+     bar renders. The legacy post header takes isSponsored instead. Props
+     are data, so no label scrambling, SVG text or link deferral changes
+     them. The header sits a few fibers below <article>; the walk stops at
+     the first component that owns either prop. If React's internals move,
+     this finds nothing and the label and link signals still run. */
+  var AD_PROPS_FIBER_BUDGET = 200;
+  function reactFiber(node) {
+    var keys = Object.keys(node);
+    for (var i = 0; i < keys.length; i++) {
+      if (keys[i].indexOf('__reactFiber$') === 0) return node[keys[i]];
+    }
+    return null;
+  }
+
+  function isAdByReactProps(article) {
+    var root = reactFiber(article);
+    if (!root) return false;
+    var stack = [root.child];
+    var visited = 0;
+    while (stack.length && visited < AD_PROPS_FIBER_BUDGET) {
+      var fiber = stack.pop();
+      if (!fiber) continue;
+      visited++;
+      var props = fiber.memoizedProps;
+      if (props && typeof props === 'object') {
+        if (Object.prototype.hasOwnProperty.call(props, 'adFragmentKey')) {
+          return props.adFragmentKey != null || props.isSponsored === true;
+        }
+        if (Object.prototype.hasOwnProperty.call(props, 'isSponsored')) {
+          return props.isSponsored === true;
+        }
+      }
+      if (fiber.sibling) stack.push(fiber.sibling);
+      if (fiber.child) stack.push(fiber.child);
+    }
+    return false;
+  }
+
   function isHomeFeedRoute() {
     return window.location.pathname === '/';
+  }
+
+  function isForYouFeedRoute() {
+    return isHomeFeedRoute() && (window.location.search || '').indexOf('variant=following') === -1;
   }
 
   function pauseVideos(el) {
@@ -381,6 +480,77 @@
     return (article.textContent || '').length + ':' + article.getElementsByTagName('*').length;
   }
 
+  /* Posts collapsed for a label or as a reel, remembered by permalink. At 1px
+     Instagram's feed unmounts them like any other post and mounts a new
+     node when one comes back into its window. That node has no
+     data-dull-collapsed, so it laid out at full height until a later pass
+     read its label again, by which time Instagram had measured it, and the
+     feed jumped. A stylesheet rule per remembered permalink collapses the
+     new node at its first layout. Home only: a profile or single-post page
+     can link the same post. */
+  var COLLAPSED_POST_LIMIT = 200;
+  /* /p/<code>/, /reel/<code>/ or /reels/<code>/, optionally after a
+     username. Not /reels/audio/<id>/, which any post with music links. */
+  var POST_PERMALINK = /^(?:\/[A-Za-z0-9._]+)?(\/(?:p|reels?)\/[A-Za-z0-9_-]{5,}\/)$/;
+  var collapsedPostReason = Object.create(null);
+  var collapsedPermalinks = [];
+
+  function postPermalink(article) {
+    var links = article.querySelectorAll('a[href*="/p/"], a[href*="/reel"]');
+    for (var i = 0; i < links.length; i++) {
+      var path = (links[i].getAttribute('href') || '').split(/[?#]/)[0];
+      if (/^https?:/i.test(path)) {
+        try {
+          var url = new URL(path);
+          if (!/(^|\.)instagram\.com$/i.test(url.hostname)) continue;
+          path = url.pathname;
+        } catch(e) { continue; }
+      }
+      var match = path.match(POST_PERMALINK);
+      if (match) return match[1];
+    }
+    return null;
+  }
+
+  function writeCollapsedPostStyle() {
+    var style = document.getElementById('dull-collapsed-posts');
+    if (!style) {
+      style = document.createElement('style');
+      style.id = 'dull-collapsed-posts';
+      (document.head || document.documentElement).appendChild(style);
+    }
+    var links = [];
+    for (var i = 0; i < collapsedPermalinks.length; i++) {
+      links.push('a[href*="' + collapsedPermalinks[i] + '"]');
+    }
+    style.textContent = 'html[data-dull-home] article:has(' + links.join(', ') + ') {' +
+      ' height: 1px !important; min-height: 1px !important; max-height: 1px !important;' +
+      ' overflow: hidden !important; padding: 0 !important; margin: 0 !important; border: 0 !important;' +
+      ' visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }';
+  }
+
+  function rememberCollapsedPost(article, reason) {
+    var permalink = postPermalink(article);
+    if (!permalink || collapsedPostReason[permalink]) return;
+    collapsedPostReason[permalink] = reason;
+    collapsedPermalinks.push(permalink);
+    if (collapsedPermalinks.length > COLLAPSED_POST_LIMIT) {
+      delete collapsedPostReason[collapsedPermalinks.shift()];
+    }
+    writeCollapsedPostStyle();
+  }
+
+  function markHomeFeedRoute() {
+    var root = document.documentElement;
+    if (!root) return;
+    if (isHomeFeedRoute()) root.setAttribute('data-dull-home', '');
+    else root.removeAttribute('data-dull-home');
+    /* Instagram can replace <head>; put the rule back. */
+    if (collapsedPermalinks.length && !document.getElementById('dull-collapsed-posts')) {
+      writeCollapsedPostStyle();
+    }
+  }
+
   function hideLabelledFeedCards() {
     if (!cfg.ads && !cfg.suggested) return;
     if (isSinglePostRoute()) return;
@@ -391,15 +561,27 @@
       var signature = articleSignature(article);
       if (cleanArticleSignature.get(article) === signature) continue;
 
-      var reason = null;
-      if (cfg.ads && (findHeaderLabel(article, sponsoredMarkers) ||
+      var permalink = isHomeFeedRoute() ? postPermalink(article) : null;
+      var reason = permalink ? collapsedPostReason[permalink] || null : null;
+      if (reason) {
+        collapseElement(article, reason);
+        pauseVideos(article);
+        continue;
+      }
+      if (cfg.ads && (isAdByReactProps(article) ||
+                      findHeaderLabel(article, sponsoredMarkers) ||
                       (isHomeFeedRoute() && hasOutboundAdLink(article)))) {
         reason = 'ad';
-      } else if (cfg.suggested && findHeaderLabel(article, suggestedPostMarkers)) {
+      } else if (cfg.suggested && !isForYouFeedRoute() &&
+                 findHeaderLabel(article, suggestedPostMarkers)) {
+        /* Never on For You, where most posts carry this label: collapsing
+           them is the endless-loading feed homeOpensFollowing() avoids. With
+           this filter on, For You only loads hidden under story compose. */
         reason = 'suggested';
       }
       if (reason) {
         collapseElement(article, reason);
+        rememberCollapsedPost(article, reason);
         pauseVideos(article);
       } else {
         cleanArticleSignature.set(article, signature);
@@ -411,9 +593,13 @@
   /* --- Suggested sections (not posts) --- */
   function isSuggestedSectionRoute() {
     var path = window.location.pathname;
-    /* DMs list "Suggested" people when composing a new message, and search
-       lists them under the search box. Both are tools, not feed. */
+    /* DMs list "Suggested" people when composing a new message, search
+       lists them under the search box, and notifications list them under
+       who followed you, next to Follow Back. All three are tools, not feed.
+       Notifications used to be /accounts/activity/, which /accounts/
+       covered; Instagram moved them to /notifications/ (2026-10). */
     return !(path.indexOf('/direct') === 0 || path.indexOf('/explore/search') === 0 ||
+      path.indexOf('/notifications') === 0 ||
       path.indexOf('/accounts/') === 0 || path.indexOf('/challenge/') === 0 ||
       path.indexOf('/checkpoint/') === 0 || path.indexOf('/auth_platform/') === 0 ||
       path.indexOf('/stories/') === 0);
@@ -430,7 +616,12 @@
   /* Smallest ancestor of the heading that holds a list of account cards:
      two or more distinct profile links plus two or more controls (the
      Follow buttons). Climbing stops before anything holding a post, an
-     input, or a page landmark, so the carousel goes and nothing around it. */
+     input, or a page landmark, so the carousel goes and nothing around it.
+     It also stops at anything that lists people above the heading: a
+     suggestion block starts with its heading, so that ancestor holds more
+     than the block. On the notifications page the heading's wrapper sits
+     in one list with every notification, and that list, Follow Back
+     buttons included, was taken for the carousel (UserJot 2026-10-21). */
   function findSuggestionListContainer(heading) {
     var node = heading.parentElement;
     for (var depth = 0; node && depth < 8; depth++) {
@@ -441,7 +632,9 @@
       var profileCount = 0;
       for (var i = 0; i < links.length; i++) {
         var href = links[i].getAttribute('href');
-        if (isProfileHref(href) && !profiles[href]) {
+        if (!isProfileHref(href)) continue;
+        if (heading.compareDocumentPosition(links[i]) & Node.DOCUMENT_POSITION_PRECEDING) return null;
+        if (!profiles[href]) {
           profiles[href] = true;
           profileCount++;
         }
@@ -501,41 +694,79 @@
   }
 
   /* Everything after the end-of-feed "Suggested posts" heading is a
-     recommendation. Runs on every critical pass, because infinite scroll keeps
-     appending posts there long after the heading was found. */
-  function hideSuggestedPostsAfterBoundary() {
-    if (!cfg.suggested) return;
-    if (!suggestedPostsBoundaries.length || !isHomeFeedRoute()) return;
+     recommendation, so the feed stops there. Collapsing those posts was not
+     enough: Instagram loads its next page when a swipe at the end of the
+     list moves the end into view, and the rubber-band bounce does that on
+     every swipe, so each swipe added a page of collapsed posts that all
+     fitted in its render window and were never unmounted (live Following
+     feed with a "Suggested posts" heading added after a post: 60 swipes,
+     237 posts mounted, 726 MB, the scroll position pulled back to the top;
+     hiding the spinner or blocking scroll events changed nothing). So while
+     the heading is on the page the posts after it take no space
+     (data-dull-collapsed="feed-end"), Instagram's spinner below them is
+     hidden, and <html data-dull-feed-end> turns the bounce off (filter.css).
+     Same feed with this: 40 swipes, 23 posts mounted, 365 MB, no further
+     pages. Runs on every critical pass, because a page already in flight
+     still lands after the heading. */
+  function liveSuggestedPostsBoundary() {
+    if (!cfg.suggested || !isHomeFeedRoute()) return null;
     var live = [];
     for (var b = 0; b < suggestedPostsBoundaries.length; b++) {
       if (document.contains(suggestedPostsBoundaries[b])) live.push(suggestedPostsBoundaries[b]);
     }
     suggestedPostsBoundaries = live;
-    if (!live.length) return;
-    var boundary = live[0];
+    return live[0] || null;
+  }
+
+  function hideSuggestedPostsAfterBoundary() {
+    var boundary = liveSuggestedPostsBoundary();
+    var root = document.documentElement;
+    if (root) {
+      if (boundary) root.setAttribute('data-dull-feed-end', '');
+      else root.removeAttribute('data-dull-feed-end');
+    }
+    if (!boundary) return;
     var articles = document.querySelectorAll('article');
     for (var a = 0; a < articles.length; a++) {
-      if (processed.has(articles[a])) continue;
-      if (boundary.compareDocumentPosition(articles[a]) & 4) {
-        collapseElement(articles[a], 'suggested');
-        pauseVideos(articles[a]);
+      var article = articles[a];
+      if (article.getAttribute('data-dull-collapsed') === 'feed-end') continue;
+      if (!(boundary.compareDocumentPosition(article) & 4)) continue;
+      /* An ad or reel collapsed earlier ends here too. */
+      collapseElement(article, 'feed-end');
+      article.setAttribute('data-dull-collapsed', 'feed-end');
+      rememberCollapsedPost(article, 'feed-end');
+      pauseVideos(article);
+    }
+    /* The feed's own spinner sits in <main> with the posts. Dialogs portal
+       to <body>, after the feed in document order, and keep theirs. */
+    var feed = boundary.closest('main');
+    var loaders = feed ? feed.querySelectorAll('[role="progressbar"]') : [];
+    for (var l = 0; l < loaders.length; l++) {
+      if (boundary.compareDocumentPosition(loaders[l]) & 4) {
+        loaders[l].style.setProperty('display', 'none', 'important');
       }
     }
   }
 
 
-  /* --- Reels navigation --- */
+  /* --- Reels navigation ---
+     Inside a post these are the post's own links: one around a Reel icon,
+     the audio page every post with music links. They are hidden but not
+     counted, because the post counts once and Instagram remounts it with
+     new links. Hidden still: left in place inside collapsed reels, they
+     made the live Following feed jump back about 240 px at the same spot
+     in four runs out of four (2026-10-11). */
   function hideReelsNavigation() {
     if (!cfg.reels) return;
     var svgs = document.querySelectorAll('svg[aria-label="Reels"], svg[aria-label="Reel"]');
     for (var i = 0; i < svgs.length; i++) {
       var navItem = svgs[i].closest('a') || svgs[i].closest('div[role="tab"]') || svgs[i].closest('div[role="tablist"] > div');
-      if (navItem) hideEl(navItem);
+      if (navItem) hideEl(navItem, !!svgs[i].closest('article'));
     }
     var links = document.querySelectorAll('a[href="/reels/"], a[href*="/reels"]');
     for (var j = 0; j < links.length; j++) {
       var navItem2 = links[j].closest('div[role="tablist"] > div') || links[j].closest('div[role="tab"]') || links[j];
-      hideEl(navItem2);
+      hideEl(navItem2, !!links[j].closest('article'));
     }
   }
 
@@ -859,14 +1090,25 @@
     }
   }
 
-  /* --- Friends-Only Mode: redirect home feed to Following on SPA navigation.
+  /* Home shows the Following feed in Friends-Only Mode and whenever
+     suggested posts are hidden (FilterRuleCompiler.instagramHomeOpensFollowing).
+     For You is mostly suggested posts; collapsing them there left a feed of
+     collapsed posts that loaded another page on every swipe, grew the page
+     until iOS could kill it, and pulled the scroll position back to the top
+     (UserJot 2026-09-17, "Instagram Refresh Issue"). */
+  function homeOpensFollowing() {
+    return !!(cfg.friendsOnly || cfg.suggested);
+  }
+
+  /* --- Following feed: redirect home feed to Following on SPA navigation.
      The initial /?variant=following redirect runs at document-start in
      FilterService.instagramFriendsOnlyEarlyRedirectScript so it fires before
      IG's bundle. This handler catches client-side route changes (taps on the
      IG logo, History API back/forward, Back link if it slips through CSS)
      and re-applies the variant. */
   function enforceFriendsOnly() {
-    if (!cfg.friendsOnly) return;
+    /* DMs-only mode sends Home to the inbox instead. */
+    if (!homeOpensFollowing() || cfg.messagesOnly) return;
     var path = window.location.pathname;
     /* Never hijack auth flows. */
     if (path.indexOf('/accounts/') === 0 || path.indexOf('/challenge/') === 0 ||
@@ -883,7 +1125,7 @@
     window.location.replace('/?variant=following');
   }
 
-  /* --- Friends-Only story compose ---
+  /* --- Story compose on Following (Friends-Only, Hide Suggested Posts) ---
      UserJot, 2026-10: "Post to story in friends-only mode". Two separate
      things were missing, and only one of them is Dull's to fix.
 
@@ -896,18 +1138,21 @@
      2. Posting a story of your own. The mobile website does support this
         (photos, with text), and its entry is the "Your story" tile at the
         start of the Home stories tray. Friends-Only sends Home to
-        /?variant=following, and Instagram renders no stories tray on that
-        variant, so Friends-Only removed the only way to start a story.
+        /?variant=following, and Instagram renders that variant with no
+        stories tray, or with friends' stories but no "Your story", so
+        Friends-Only removed the only way to start a story. Hide Suggested
+        Posts sends Home there too (homeOpensFollowing).
 
-     For (2): on Following, when no usable native tray is on screen, a Dull
+     For (2): on Following, when "Your story" is not on screen, a Dull
      button opens Home in compose mode. The document-start redirect lets `/`
      through while the sessionStorage stamp is fresh and marks <html> before
      first paint; filter.css hides the whole page except the elements this
      code marks: the tray, Instagram's dialogs and full-screen overlays, and
      Dull's bar. The For-You feed loads underneath but is never visible,
-     tappable or scrollable, and its videos are paused. Leaving `/` (the
-     composer route, a story viewer) ends compose, so Instagram's return to
-     Home after posting lands back on Following. */
+     tappable or scrollable, and its videos are paused. Leaving `/` for the
+     composer route ends compose, so Instagram's return to Home after
+     posting lands back on Following; closing a story viewer opened from the
+     tray returns to the tray. */
   var STORY_COMPOSE_KEY = '__dullStoryCompose';
   var STORY_COMPOSE_MAX_MS = 600000;
   var STORY_COMPOSE_GIVE_UP_MS = 8000;
@@ -924,7 +1169,7 @@
   }
 
   function isStoryComposeAllowed() {
-    return !!cfg.friendsOnly && !cfg.messagesOnly;
+    return homeOpensFollowing() && !cfg.messagesOnly;
   }
 
   function isStoryComposePage() {
@@ -971,11 +1216,16 @@
     __dullStoryPreTapLayers = new WeakSet();
   }
 
+  /* By its caption span: the tile's textContent also carries the <title> of
+     its plus icon ("Plus iconYour story" on the live For You tray). */
   function findYourStoryButton() {
     var buttons = document.querySelectorAll('div[role="button"]:not([aria-label])');
     for (var i = 0; i < buttons.length; i++) {
-      var text = (buttons[i].textContent || '').toLowerCase().replace(/\s+/g, ' ').trim();
-      if (YOUR_STORY_TEXT.indexOf(text) !== -1) return buttons[i];
+      var spans = buttons[i].getElementsByTagName('span');
+      for (var s = 0; s < spans.length; s++) {
+        var text = (spans[s].textContent || '').toLowerCase().replace(/\s+/g, ' ').trim();
+        if (YOUR_STORY_TEXT.indexOf(text) !== -1) return buttons[i];
+      }
     }
     return null;
   }
@@ -1125,10 +1375,10 @@
     bar.id = 'dull-story-compose-bar';
     bar.setAttribute('role', 'status');
     var message = document.createElement('span');
-    message.textContent = 'looking for your story...';
+    message.textContent = copy('instagramFilter.storyCompose.searching', 'looking for your story...');
     var back = document.createElement('button');
     back.type = 'button';
-    back.textContent = 'back to following';
+    back.textContent = copy('instagramFilter.storyCompose.back', 'back to following');
     back.addEventListener('click', function(e) {
       e.preventDefault();
       e.stopPropagation();
@@ -1151,12 +1401,16 @@
     var root = document.documentElement;
     if (!isStoryComposePage()) {
       if (root && root.hasAttribute('data-dull-story-compose')) endStoryCompose();
-      /* Any route away from Home ends compose for good, so Instagram's
-         return to Home after posting is Following again. Following itself
-         is left alone: the entry button stamps and then navigates, and a
-         pass in between must not erase the stamp. */
+      /* Any other route away from Home ends compose for good, so
+         Instagram's return to Home after posting is Following again. A
+         story opened from the tray keeps it: closing the viewer goes back
+         to `/`, which then reloaded as Following, so every story watched
+         this way cost a full page load and the tray. Following itself is
+         left alone: the entry button stamps and then navigates, and a pass
+         in between must not erase the stamp. */
       var stamp = storyComposeStamp();
-      if (stamp && (window.location.pathname !== '/' ||
+      var path = window.location.pathname;
+      if (stamp && ((path !== '/' && path.indexOf('/stories/') !== 0) ||
                     Date.now() - stamp >= STORY_COMPOSE_MAX_MS)) {
         clearStoryComposeStamp();
       }
@@ -1201,38 +1455,54 @@
       /* Step out of the way of Instagram's own sheet or composer. */
       if (overlayOpen) bar.setAttribute('hidden', '');
       else bar.removeAttribute('hidden');
-      if (tray) {
-        setStoryComposeMessage(bar, 'tap your story to post one. the feed stays hidden.');
+      if (tray && !cfg.stories && found.tiles.length) {
+        setStoryComposeMessage(bar, copy('instagramFilter.storyCompose.watchOrAdd',
+          'tap a story to watch it, or your story to add one. the feed stays hidden.'));
+      } else if (tray) {
+        setStoryComposeMessage(bar, copy('instagramFilter.storyCompose.post',
+          'tap your story to post one. the feed stays hidden.'));
       } else if (Date.now() - __dullStoryComposeSeenAt > STORY_COMPOSE_GIVE_UP_MS) {
-        setStoryComposeMessage(bar, "instagram isn't showing a story button for this account right now.");
+        setStoryComposeMessage(bar, copy('instagramFilter.storyCompose.unavailable',
+          "instagram isn't showing a story button for this account right now."));
       }
     }
   }
 
-  /* Entry point on Following. Shown only when Instagram's own "Your story"
-     is not on screen: the variant omitted the tray, or Hide Stories hid it. */
+  /* Entry point on Following. Shown whenever Instagram's own "Your story"
+     is not on screen: the variant omitted the tray, Hide Stories hid it, or
+     the tray is there without it. The live Following tray (2026-10) has
+     friends' stories but no "Your story", and Hide Suggested Posts sends
+     every default user there, so friends' tiles alone must not hide the
+     entry. Compose shows friends' stories too unless Hide Stories is on, so
+     with no native tray the entry offers both. */
   function renderStoryComposeEntry() {
     var existing = document.getElementById('dull-story-compose-entry');
     var onFollowing = isStoryComposeAllowed()
       && window.location.pathname === '/'
       && (window.location.search || '').indexOf('variant=following') !== -1;
-    var nativeEntryVisible = onFollowing && !cfg.stories
-      && (labelledStoryButtons().length > 0 || !!findYourStoryButton());
+    var friendTilesVisible = onFollowing && !cfg.stories && labelledStoryButtons().length > 0;
+    var nativeEntryVisible = onFollowing && !cfg.stories && !!findYourStoryButton();
     if (!onFollowing || nativeEntryVisible) {
       if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
       return;
     }
+    var label = (cfg.stories || friendTilesVisible)
+      ? copy('instagramFilter.storyEntry.add', '+ add to your story')
+      : copy('instagramFilter.storyEntry.seeOrAdd', 'see stories or add yours');
     var main = document.querySelector('main');
     /* Wait for the feed: Instagram renders a tray, when it renders one, no
        later than the first post, so this avoids a button that flashes and
        then gives way to the native tile. */
     if (!main || !main.querySelector('article')) return;
-    if (existing && main.contains(existing)) return;
+    if (existing && main.contains(existing)) {
+      if (existing.textContent !== label) existing.textContent = label;
+      return;
+    }
     if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
     var button = document.createElement('button');
     button.type = 'button';
     button.id = 'dull-story-compose-entry';
-    button.textContent = '+ add to your story';
+    button.textContent = label;
     button.addEventListener('click', function(e) {
       e.preventDefault();
       e.stopPropagation();
@@ -1447,10 +1717,10 @@
       'text-align:center;max-width:280px;letter-spacing:0.01em;';
     var line1 = document.createElement('div');
     line1.style.cssText = 'font-weight:700;margin-bottom:14px;';
-    line1.textContent = "no scrolling past this reel.";
+    line1.textContent = copy('instagramFilter.reelInterrupt.title', 'no scrolling past this reel.');
     var line2 = document.createElement('div');
     line2.style.cssText = 'opacity:0.85;';
-    line2.textContent = "that's the whole point of dull.";
+    line2.textContent = copy('instagramFilter.reelInterrupt.detail', "that's the whole point of dull.");
     inner.appendChild(line1);
     inner.appendChild(line2);
     overlay.appendChild(inner);
@@ -1713,6 +1983,502 @@
   }
   initAudioPersistence();
 
+  /* --- Save to collection ---
+     Instagram's website only offers collections on desktop. Its save button
+     builds the collection picker when PolarisUA.isDesktop() and opens it on
+     mouse hover, the saved tab lists every saved post with no collections,
+     and the server answers /<user>/saved/<slug>/<id>/ with the profile on a
+     phone. So on the phone site Dull loads, a post could be saved but never
+     put in a collection (UserJot 2026-10). After a tap on Save, Dull offers
+     its own picker, like the "Save to collection" toast in the app.
+
+     It lists and edits collections through Instagram's own client modules,
+     the ones the desktop picker uses, so every request carries Instagram's
+     own tokens and headers: PolarisSavedCollectionPickerQuery for the list,
+     PolarisAPIEditCollection to add and remove, PolarisAPICreateCollection
+     for a new collection (loaded on demand, like the desktop dialog that
+     owns it). A post that was just saved is in no collection: unsaving
+     drops it from every one on the server, but Instagram's store keeps the
+     old saved_collection_ids, and the sheet showed a collection checked
+     that no longer held the post (live, 2026-10-15). So a save clears them
+     and the sheet starts empty. If a module is missing, Dull shows nothing
+     and saving works as it did. */
+  var SAVE_ICON_POINTS = '20 21 12 13.44 4 21 4 3 20 3 20 21';
+  var SHORTCODE_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  var POST_ROUTE_CODE = /^(?:\/[A-Za-z0-9._]+)?\/(?:p|reels?)\/([A-Za-z0-9_-]{5,})\/?$/;
+  var COLLECTION_BAR_MS = 6000;
+  var collectionBarTimer = null;
+  var collectionBarPath = null;
+  var collectionSheet = null;
+
+  function igModule(name) {
+    try {
+      return (typeof window.require === 'function' && window.require(name)) || null;
+    } catch(e) { return null; }
+  }
+
+  function collectionModules() {
+    var mods = {
+      relay: igModule('CometRelay'),
+      runtime: igModule('relay-runtime'),
+      env: igModule('PolarisRelayEnvironment'),
+      query: igModule('PolarisSavedCollectionPickerQuery'),
+      listFragment: igModule('PolarisSavedCollectionPicker_query.graphql'),
+      itemFragment: igModule('PolarisSavedCollectionPickerListItem_collection.graphql'),
+      edit: igModule('PolarisAPIEditCollection')
+    };
+    if (!mods.relay || typeof mods.relay.fetchQuery !== 'function') return null;
+    if (!mods.runtime || typeof mods.runtime.getSelector !== 'function') return null;
+    if (!mods.env || typeof mods.env.lookup !== 'function' || typeof mods.env.getStore !== 'function') return null;
+    if (!mods.query || !mods.listFragment) return null;
+    if (!mods.edit || typeof mods.edit.editCollection !== 'function') return null;
+    return mods;
+  }
+
+  /* 'save' for an outline bookmark (a tap saves), 'unsave' for a filled
+     one. The label is Instagram's own, in the account's language. */
+  function saveIconState(svg) {
+    var label = svg.getAttribute('aria-label') || '';
+    var strings = igModule('PolarisPostStrings');
+    var saveText = strings && strings.SAVE_TEXT ? String(strings.SAVE_TEXT) : 'Save';
+    var unsaveText = strings && strings.UNSAVE_TEXT ? String(strings.UNSAVE_TEXT) : 'Remove';
+    if (label === saveText || svg.querySelector('polygon[points="' + SAVE_ICON_POINTS + '"]')) return 'save';
+    if (label === unsaveText) return 'unsave';
+    return null;
+  }
+
+  /* The post a Save button belongs to: its feed or single-post <article>,
+     or, in the standalone reel viewer, which has none, the route. */
+  function shortcodeForSaveButton(button) {
+    var article = button.closest('article');
+    var path = article ? postPermalink(article) : window.location.pathname;
+    var match = path && path.match(POST_ROUTE_CODE);
+    return match && match[1] !== 'audio' ? match[1] : null;
+  }
+
+  /* A shortcode is the media id in base 64; a private account's longer
+     code keeps the id in its first 11 characters. */
+  function shortcodeToPk(code) {
+    if (typeof BigInt !== 'function') return null;
+    var digits = code.slice(0, 11);
+    var n = BigInt(0);
+    for (var i = 0; i < digits.length; i++) {
+      var value = SHORTCODE_ALPHABET.indexOf(digits.charAt(i));
+      if (value < 0) return null;
+      n = n * BigInt(64) + BigInt(value);
+    }
+    return n.toString();
+  }
+
+  function mediaRecord(mods, code) {
+    try {
+      var source = mods.env.getStore().getSource();
+      var pk = shortcodeToPk(code);
+      var direct = pk ? source.get('XDTMediaDict:' + pk) : null;
+      if (direct && direct.code === code) return direct;
+      var ids = source.getRecordIDs();
+      for (var i = 0; i < ids.length; i++) {
+        var record = source.get(ids[i]);
+        if (record && record.__typename === 'XDTMediaDict' && record.code === code) return record;
+      }
+    } catch(e) {}
+    return null;
+  }
+
+  /* Same store write as Instagram's own picker, so its state agrees. */
+  function storeCollectionIds(mods, pk, ids) {
+    try {
+      mods.relay.commitLocalUpdate(mods.env, function(store) {
+        var record = store.get('XDTMediaDict:' + pk);
+        if (record) record.setValue(ids.slice(), 'saved_collection_ids');
+      });
+    } catch(e) {}
+  }
+
+  function loadCollections(mods) {
+    return mods.relay.fetchQuery(mods.env, mods.query, { first: 50 }).toPromise().then(function(data) {
+      var list = mods.env.lookup(mods.runtime.getSelector(mods.listFragment, data)).data;
+      var edges = (list && list.viewer && list.viewer.media_collections &&
+        list.viewer.media_collections.edges) || [];
+      var source = mods.env.getStore().getSource();
+      var collections = [];
+      for (var i = 0; i < edges.length; i++) {
+        var node = edges[i] && edges[i].node;
+        if (!node || !node.collection_id) continue;
+        var item = null;
+        if (mods.itemFragment) {
+          try { item = mods.env.lookup(mods.runtime.getSelector(mods.itemFragment, node)).data; } catch(e) {}
+        }
+        var record = source.get('MediaCollection:' + node.collection_id) || {};
+        var candidates = item && item.cover_media && item.cover_media.image_versions2 &&
+          item.cover_media.image_versions2.candidates;
+        collections.push({
+          id: String(node.collection_id),
+          name: (item && item.collection_name) || record.collection_name || '',
+          cover: candidates && candidates.length ? candidates[candidates.length - 1].url : null
+        });
+      }
+      return collections;
+    });
+  }
+
+  function createCollection(mods, name, pk) {
+    var loaded = igModule('PolarisAPICreateCollection');
+    var ready;
+    if (loaded) {
+      ready = Promise.resolve(loaded);
+    } else {
+      var resource = igModule('JSResourceForInteraction');
+      if (typeof resource !== 'function') return Promise.reject(new Error('unavailable'));
+      var ref = resource('PolarisCreateCollectionWithPostModal.react');
+      if (ref && typeof ref.__setRef === 'function') ref = ref.__setRef('DullCollectionPicker') || ref;
+      if (!ref || typeof ref.load !== 'function') return Promise.reject(new Error('unavailable'));
+      ready = ref.load().then(function() { return igModule('PolarisAPICreateCollection'); });
+    }
+    return ready.then(function(api) {
+      if (!api || typeof api.createCollection !== 'function') throw new Error('unavailable');
+      return api.createCollection(mods.env, name, [pk]);
+    });
+  }
+
+  function removeCollectionBar() {
+    if (collectionBarTimer) { clearTimeout(collectionBarTimer); collectionBarTimer = null; }
+    collectionBarPath = null;
+    var bar = document.getElementById('dull-collection-bar');
+    if (bar && bar.parentNode) bar.parentNode.removeChild(bar);
+  }
+
+  function showCollectionBar(post) {
+    removeCollectionBar();
+    if (!document.body) return;
+    var bar = document.createElement('div');
+    bar.id = 'dull-collection-bar';
+    bar.setAttribute('role', 'status');
+    var text = document.createElement('span');
+    text.textContent = copy('instagramFilter.collections.saved', 'saved.');
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = copy('instagramFilter.collections.add', 'add to collection');
+    button.addEventListener('click', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      removeCollectionBar();
+      openCollectionSheet(post);
+    });
+    bar.appendChild(text);
+    bar.appendChild(button);
+    document.body.appendChild(bar);
+    collectionBarPath = window.location.pathname;
+    collectionBarTimer = setTimeout(removeCollectionBar, COLLECTION_BAR_MS);
+  }
+
+  function closeCollectionSheet() {
+    collectionSheet = null;
+    var ids = ['dull-collection-sheet', 'dull-collection-backdrop'];
+    for (var i = 0; i < ids.length; i++) {
+      var el = document.getElementById(ids[i]);
+      if (el && el.parentNode) el.parentNode.removeChild(el);
+    }
+  }
+
+  function setCollectionStatus(text) {
+    var status = document.getElementById('dull-collection-status');
+    if (!status) return;
+    status.textContent = text || '';
+    status.hidden = !text;
+  }
+
+  function renderCollectionRows(state) {
+    var list = document.getElementById('dull-collection-list');
+    if (!list || collectionSheet !== state) return;
+    list.textContent = '';
+    for (var i = 0; i < state.collections.length; i++) {
+      (function(collection) {
+        var inCollection = state.member.indexOf(collection.id) >= 0;
+        var row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'dull-collection-row';
+        row.setAttribute('aria-pressed', inCollection ? 'true' : 'false');
+        row.setAttribute('data-collection-id', collection.id);
+        var thumb = document.createElement('span');
+        thumb.className = 'dull-collection-thumb';
+        if (collection.cover) {
+          var img = document.createElement('img');
+          img.alt = '';
+          img.src = collection.cover;
+          thumb.appendChild(img);
+        }
+        var name = document.createElement('span');
+        name.className = 'dull-collection-name';
+        name.textContent = collection.name;
+        var check = document.createElement('span');
+        check.className = 'dull-collection-check';
+        check.setAttribute('aria-hidden', 'true');
+        check.textContent = inCollection ? '✓' : '';
+        row.appendChild(thumb);
+        row.appendChild(name);
+        row.appendChild(check);
+        row.addEventListener('click', function() { toggleCollection(state, collection); });
+        list.appendChild(row);
+      })(state.collections[i]);
+    }
+  }
+
+  function setMembership(state, collectionId, inCollection) {
+    var at = state.member.indexOf(collectionId);
+    if (inCollection && at < 0) state.member.push(collectionId);
+    if (!inCollection && at >= 0) state.member.splice(at, 1);
+  }
+
+  function toggleCollection(state, collection) {
+    if (state.pending[collection.id]) return;
+    var add = state.member.indexOf(collection.id) < 0;
+    state.pending[collection.id] = true;
+    setMembership(state, collection.id, add);
+    setCollectionStatus('');
+    renderCollectionRows(state);
+    var change = add ? { collectionId: collection.id, postIdsToAdd: [state.pk] }
+                     : { collectionId: collection.id, postIdsToRemove: [state.pk] };
+    var request;
+    try { request = Promise.resolve(state.mods.edit.editCollection(change)); }
+    catch(e) { request = Promise.reject(e); }
+    request.then(function() {
+      delete state.pending[collection.id];
+      storeCollectionIds(state.mods, state.pk, state.member);
+    }, function() {
+      delete state.pending[collection.id];
+      setMembership(state, collection.id, !add);
+      renderCollectionRows(state);
+      if (collectionSheet === state) {
+        setCollectionStatus(copy('instagramFilter.collections.error', "couldn't reach instagram. try again."));
+      }
+    });
+  }
+
+  function showNewCollectionForm(state, footer) {
+    footer.textContent = '';
+    var form = document.createElement('form');
+    form.id = 'dull-collection-form';
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.maxLength = 50;
+    input.placeholder = copy('instagramFilter.collections.namePlaceholder', 'collection name');
+    input.setAttribute('aria-label', input.placeholder);
+    input.setAttribute('enterkeyhint', 'done');
+    var create = document.createElement('button');
+    create.type = 'submit';
+    create.textContent = copy('instagramFilter.collections.create', 'create');
+    form.appendChild(input);
+    form.appendChild(create);
+    form.addEventListener('keydown', function(e) { e.stopPropagation(); });
+    form.addEventListener('submit', function(e) {
+      e.preventDefault();
+      var name = input.value.trim();
+      if (!name || state.creating) return;
+      state.creating = true;
+      create.disabled = true;
+      setCollectionStatus('');
+      createCollection(state.mods, name, state.pk).then(function(result) {
+        state.creating = false;
+        var id = result && result.collection_id ? String(result.collection_id) : '';
+        if (!id) throw new Error('no collection id');
+        state.collections.unshift({ id: id, name: result.collection_name || name, cover: null });
+        setMembership(state, id, true);
+        storeCollectionIds(state.mods, state.pk, state.member);
+        renderCollectionRows(state);
+        renderNewCollectionButton(state, footer);
+      }).catch(function() {
+        state.creating = false;
+        create.disabled = false;
+        if (collectionSheet === state) {
+          setCollectionStatus(copy('instagramFilter.collections.error', "couldn't reach instagram. try again."));
+        }
+      });
+    });
+    footer.appendChild(form);
+    input.focus();
+  }
+
+  function renderNewCollectionButton(state, footer) {
+    if (collectionSheet !== state) return;
+    footer.textContent = '';
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.id = 'dull-collection-new';
+    button.textContent = copy('instagramFilter.collections.new', '+ new collection');
+    button.addEventListener('click', function() { showNewCollectionForm(state, footer); });
+    footer.appendChild(button);
+  }
+
+  function openCollectionSheet(post) {
+    closeCollectionSheet();
+    if (!document.body) return;
+    var state = {
+      pk: post.pk, mods: post.mods, path: window.location.pathname,
+      member: [], collections: [], pending: {}, creating: false
+    };
+    collectionSheet = state;
+
+    var backdrop = document.createElement('div');
+    backdrop.id = 'dull-collection-backdrop';
+    backdrop.addEventListener('click', closeCollectionSheet);
+
+    var sheet = document.createElement('div');
+    sheet.id = 'dull-collection-sheet';
+    sheet.setAttribute('role', 'dialog');
+    sheet.setAttribute('aria-modal', 'true');
+    var header = document.createElement('div');
+    header.className = 'dull-collection-header';
+    var title = document.createElement('h2');
+    title.id = 'dull-collection-title';
+    title.textContent = copy('instagramFilter.collections.add', 'add to collection');
+    sheet.setAttribute('aria-labelledby', title.id);
+    var done = document.createElement('button');
+    done.type = 'button';
+    done.id = 'dull-collection-done';
+    done.textContent = copy('instagramFilter.collections.done', 'done');
+    done.addEventListener('click', closeCollectionSheet);
+    header.appendChild(title);
+    header.appendChild(done);
+    var status = document.createElement('p');
+    status.id = 'dull-collection-status';
+    var list = document.createElement('div');
+    list.id = 'dull-collection-list';
+    var footer = document.createElement('div');
+    footer.className = 'dull-collection-footer';
+    sheet.appendChild(header);
+    sheet.appendChild(status);
+    sheet.appendChild(list);
+    sheet.appendChild(footer);
+    document.body.appendChild(backdrop);
+    document.body.appendChild(sheet);
+
+    setCollectionStatus(copy('instagramFilter.collections.loading', 'loading your collections...'));
+    var request;
+    try { request = loadCollections(state.mods); }
+    catch(e) { request = Promise.reject(e); }
+    request.then(function(collections) {
+      if (collectionSheet !== state) return;
+      state.collections = collections;
+      setCollectionStatus(collections.length ? '' :
+        copy('instagramFilter.collections.empty', 'no collections yet.'));
+      renderCollectionRows(state);
+      renderNewCollectionButton(state, footer);
+    }, function() {
+      if (collectionSheet !== state) return;
+      setCollectionStatus(copy('instagramFilter.collections.error', "couldn't reach instagram. try again."));
+    });
+  }
+
+  /* Capture phase, so the icon still shows what the tap is about to do:
+     Instagram's own handler flips it once it runs. */
+  function handleSaveButtonTap(e) {
+    var target = e.target;
+    if (!target || !target.closest) return;
+    if (target.closest('[id^="dull-collection"]')) return;
+    var button = target.closest('[role="button"], button');
+    if (!button || button.closest('a')) return;
+    var icons = button.querySelectorAll('svg');
+    if (icons.length !== 1) return;
+    var state = saveIconState(icons[0]);
+    if (state === 'unsave') { removeCollectionBar(); return; }
+    if (state !== 'save') return;
+    var code = shortcodeForSaveButton(button);
+    if (!code) return;
+    var mods = collectionModules();
+    if (!mods) return;
+    var record = mediaRecord(mods, code);
+    var pk = record && record.pk ? String(record.pk) : shortcodeToPk(code);
+    if (!pk) return;
+    /* Offer collections only once Instagram shows the post as saved. A
+       logged-out tap goes to the login page instead. */
+    setTimeout(function() {
+      if (!document.contains(button)) return;
+      var icon = button.querySelector('svg');
+      if (!icon || saveIconState(icon) !== 'unsave') return;
+      storeCollectionIds(mods, pk, []);
+      showCollectionBar({ pk: pk, mods: mods });
+    }, 400);
+  }
+  document.addEventListener('click', handleSaveButtonTap, true);
+
+  /* A different page closes Dull's bar and sheet; a query-string rewrite on
+     the same page (the single-reel cleanup) does not. */
+  function closeCollectionUIOnRouteChange() {
+    var path = window.location.pathname;
+    if (collectionSheet && collectionSheet.path !== path) closeCollectionSheet();
+    if (collectionBarPath !== null && collectionBarPath !== path) removeCollectionBar();
+  }
+
+  /* --- Profiles in Instagram's account switcher ---
+     The username at the top of your own profile opens Instagram's "Switch
+     accounts" sheet. Its list view holds the other Instagram profiles in
+     the same Accounts Center (state.fxSSO.igProfiles, which every
+     logged-in page loads from /api/v1/web/fxcal/ig_sso_users/), and a tap
+     on one switches through /api/v1/web/fxcal/ig_sso_login/. The phone
+     site opens the sheet on that list only when Facebook's SDK reports a
+     logged-in Facebook user, or when a saved one-tap login matches the
+     browser's machine id. Otherwise it opens on a bare login form. Neither
+     holds in Dull: Instagram rates the Facebook SDK ineligible for the
+     account (fb.status ig_ineligible), and with no mid cookie the page can
+     read, the machine id is new on every load, so a saved login never
+     matches. A second profile under the same login could not be reached
+     (UserJot 2026-05-29, "Can't get Instagram account to switch on Dull").
+     Live on the simulator, 2026-10-23: the second profile was in
+     fxSSO.igProfiles and the sheet showed only the form.
+     When Instagram opens the sheet on the form while its own state holds
+     another profile, Dull switches the sheet to the list with Instagram's
+     own switchAuthType, the action its "Log into an existing account"
+     button reverses. The rows, the switch and the form are Instagram's. If
+     a module is missing, the sheet opens as it did. */
+  var __dullSwitcherPatched = false;
+
+  function hasOtherLinkedProfile(state, viewerId, viewerUsername) {
+    var profiles = state && state.fxSSO && state.fxSSO.igProfiles;
+    if (!profiles || !profiles.length) return false;
+    for (var i = 0; i < profiles.length; i++) {
+      var profile = profiles[i];
+      if (!profile || !profile.username) continue;
+      if (viewerId != null && String(profile.userId) === String(viewerId)) continue;
+      if (viewerUsername && profile.username === viewerUsername) continue;
+      return true;
+    }
+    return false;
+  }
+
+  function openSwitcherOnProfiles() {
+    if (__dullSwitcherPatched) return;
+    var actions = igModule('PolarisAccountSwitcherActions');
+    var authActions = igModule('PolarisAuthActions');
+    var constants = igModule('PolarisAuthActionConstants');
+    var config = igModule('PolarisConfig');
+    if (!actions || typeof actions.openAccountSwitcher !== 'function') return;
+    if (!authActions || typeof authActions.switchAuthType !== 'function') return;
+    var AUTH = constants && constants.AUTH;
+    if (!AUTH || !AUTH.login || !AUTH.oneTapLogin) return;
+    __dullSwitcherPatched = true;
+    var openAccountSwitcher = actions.openAccountSwitcher;
+    actions.openAccountSwitcher = function(options) {
+      var thunk = openAccountSwitcher.apply(this, arguments);
+      /* A caller that asks for a view gets that view. */
+      if (typeof thunk !== 'function' || (options && options.initialAuth != null)) return thunk;
+      return function(dispatch, getState) {
+        var result = thunk.apply(this, arguments);
+        try {
+          var viewer = config && typeof config.getViewerData_DO_NOT_USE === 'function' ?
+            config.getViewerData_DO_NOT_USE() : null;
+          var viewerId = config && typeof config.getViewerId === 'function' ? config.getViewerId() : null;
+          var state = getState();
+          if (state.auth.authType === AUTH.login &&
+              hasOtherLinkedProfile(state, viewerId, viewer && viewer.username)) {
+            dispatch(authActions.switchAuthType(AUTH.oneTapLogin));
+          }
+        } catch(e) {}
+        return result;
+      };
+    };
+  }
+
   /* --- Critical filters (run on every mutation) ---
      lockReelsPager runs unconditionally — sets inline styles only, no layout
      reads, safe during input/keyboard focus. The remaining filters do
@@ -1723,7 +2489,9 @@
      autofocuses a contentEditable message input the moment it opens, so the
      gate was always tripped on /direct/ reels. */
   function processCritical() {
+    openSwitcherOnProfiles();
     markSinglePostRoute();
+    markHomeFeedRoute();
     markExploreRoute();
     enforceMessagesOnly();
     var composing = maintainStoryComposeMode();
@@ -1918,6 +2686,7 @@
      pass, which on iOS WKWebView dismisses the keyboard the moment the user taps
      the 2FA code field. The next mutation after blur catches up. */
   window.addEventListener('dull-navigation', function() {
+    closeCollectionUIOnRouteChange();
     try { processCritical(); } catch(e) {}
     if (!isEditingFocused()) scheduleDeferred();
     startPostNavPoll();

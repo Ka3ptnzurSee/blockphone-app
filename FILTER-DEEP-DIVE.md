@@ -1,8 +1,13 @@
-# Instagram-Filter — Deep Dive (filter.js, v2.4.0)
+# Instagram-Filter — Deep Dive (filter.js, v2.5.2)
 
-Analyse der Blocking-Logik aus `assets/filters/instagram/filter.js` (1937 Zeilen,
-portiert aus der Dull-App). Die Mechanismen sind 1:1 in jedem WKWebView nutzbar —
+Analyse der Blocking-Logik aus `assets/filters/instagram/filter.js` (2706 Zeilen,
+portiert aus der Dull-App, **Stand v1.9.4** / Filter v2.5.2). Die Mechanismen sind 1:1 in jedem WKWebView nutzbar —
 unabhängig von React Native / Swift.
+
+> ⚡ **Update 2026-10-25:** Port von Dull v1.9.3 → **v1.9.4** aktualisiert.
+> Instagram-Filter v2.4.0 → **v2.5.2**, Reddit v2.1.2 → **v2.2.0**.
+> Neu seit v2.4.0: `v2.5.0` Saved Posts/Collections · `v2.5.1` Notifications ·
+> `v2.5.2` Account-Switcher (alle aus UserJot-Reports). Reddit v2.2.0: Sign-Out-Popular-Feed-Handling.
 
 ## 1. Ausführungs-Modell
 

@@ -3,5 +3,8 @@
   "compilerOptions": {
     "strict": true
   },
-  "exclude": ["lib/*.test.ts"]
+  "exclude": [
+    "lib/*.test.ts",
+    "convex"
+  ]
 }

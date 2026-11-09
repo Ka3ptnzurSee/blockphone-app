@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "2.1.2",
-  "lastUpdated": "2026-10-09",
+  "version": "2.2.0",
+  "lastUpdated": "2026-10-23",
   "platform": "reddit",
   "displayName": "Reddit",
   "baseURL": "https://www.reddit.com",
@@ -23,5 +23,5 @@
     "healthCheck": ["shreddit-post", "article", "shreddit-feed"]
   },
   "blockedURLPatterns": [],
-  "notes": "FRAGILITY: Low-Medium. Reddit uses Lit web components with shreddit- prefix — more stable than class names. Ads use shreddit-ad-post. Recommended posts identified by recommendation-subreddit-name attribute or shreddit-join-button presence. Watch feed is app-only (not on mobile web). v2.1.0 (2026-08-19): infinite-scroll mutations are queued and filtered within their newly added article/subtree. The initial load and SPA route changes still receive a full-document pass, while typing defers queued work until focus leaves the editor. v2.1.1 ignores hidden, pre-mounted login dialogs when deciding whether to defer the queue, preventing lazy content from remaining unprocessed after Reddit keeps an inactive auth surface in the DOM. v2.1.2 (2026-10-09) ports upstream list changes: Explore and News page types and nav links join Popular/All (redirect to Home on /explore and /news), the discovery_unit \"more posts\" tracker joins suggested (BevizLaszlo/UBlock-Filters-for-Social-Media), and the server-rendered NSFW app wall plus the inline View in app prompt are hidden always-on (uBO uAssets annoyances-others.txt)."
+  "notes": "FRAGILITY: Low-Medium. Reddit uses Lit web components with shreddit- prefix — more stable than class names. Ads use shreddit-ad-post. Recommended posts identified by recommendation-subreddit-name attribute or shreddit-join-button presence. Watch feed is app-only (not on mobile web). v2.1.0 (2026-08-19): infinite-scroll mutations are queued and filtered within their newly added article/subtree. The initial load and SPA route changes still receive a full-document pass, while typing defers queued work until focus leaves the editor. v2.1.1 ignores hidden, pre-mounted login dialogs when deciding whether to defer the queue, preventing lazy content from remaining unprocessed after Reddit keeps an inactive auth surface in the DOM. v2.1.2 (2026-10-09) ports upstream list changes: Explore and News page types and nav links join Popular/All (redirect to Home on /explore and /news), the discovery_unit \"more posts\" tracker joins suggested (BevizLaszlo/UBlock-Filters-for-Social-Media), and the server-rendered NSFW app wall plus the inline View in app prompt are hidden always-on (uBO uAssets annoyances-others.txt). v2.2.0 (2026-10-23): signed out, Reddit serves its home as the Popular feed (pagetype=\"popular\"), so with Popular & All on the home page was blank; filter.js now puts a log-in prompt in the feed's place (only without shreddit-app[user-logged-in]). Reddit's blocking app wall for signed-out visitors (configured-xpromo-modal, e.g. mweb3x_feeds_blocking_xpromo_lo_page_fade after 30 s on a feed) is dismissed through Reddit's own dismiss-configured-xpromo event, with CSS hiding the portaled .configured-xpromo sheet and lifting body.rpl-scroll-lock."
 }

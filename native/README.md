@@ -44,6 +44,70 @@ Nachbau des Dull-Sperr-Screens für **Blockphone**. Diese Dateien sind **nativer
    eas build --profile development --platform ios
    ```
 
+## Netzwerk-Ebene (DNS-Blocking, Ebene ② — Vorbild Freedom)
+
+Zusätzlich zum Screen-Time-Shield gibt es den **DNS-Blocking-Tunnel**
+(`PacketTunnelProvider` + `DnsFilter`). Das ist das funktionale Äquivalent zu
+Freedoms `AGDnsProxy`-Layer: blockt Domains **systemweit** (jede App, nicht nur
+Browser) über ein lokales Personal-VPN.
+
+| Datei | Zweck |
+|---|---|
+| `ios/PacketTunnelProvider/PacketTunnelProvider.swift` | NEPacketTunnelProvider — /32-Route + NEDNSSettings auf 10.8.0.1 |
+| `ios/PacketTunnelProvider/DnsFilter.swift` | Parst IPv4/UDP/DNS-Pakete, Suffix-Match + Upstream-Forwarding (1.1.1.1) |
+| `ios/PacketTunnelProvider/BlocklistStore.swift` | Liest die Domain-Liste aus der App Group |
+| `ios/PacketTunnelProvider/Info.plist` | NSExtension-Punkt `com.apple.networkextension.packet-tunnel` |
+| `ios/VpnManager.swift` | NEVPNManager-Start/Stop + RN-Bridge (`@objc(VpnManager)`) |
+| `ios/VpnManager.m` | registriert das Modul in der Bridge |
+| `../plugins/withNetworkBlocker.js` | setzt `networkextension` + `vpn.api = allow-vpn` + App Group |
+
+### Integration (Xcode, einmalig)
+
+1. **Extension-Target anlegen**: Target-Typ `Network Extension` → `Packet Tunnel Provider`.
+   - `Info.plist` aus `native/ios/PacketTunnelProvider/` verwenden
+     (Punkt + Principal-Class sind gesetzt).
+   - Die drei Swift-Dateien (`PacketTunnelProvider.swift`, `DnsFilter.swift`,
+     `BlocklistStore.swift`) dem Target hinzufügen.
+2. **Entitlements auf das Extension-Target**:
+   - `com.apple.developer.networking.networkextension = true`
+   - `com.apple.developer.networking.vpn.api = ["allow-vpn"]`
+   - `com.apple.security.application-groups = group.com.meister.blockphone`
+3. **Haupt-Target**: `VpnManager.swift` + `VpnManager.m` hinzufügen.
+   In „Build Phases → Embed App Extensions" die `PacketTunnelProvider.appex` einbetten.
+4. **Bundle-ID der Extension**: `com.meister.blockphone.PacketTunnelProvider`
+   (muss zu `VpnService.extensionBundleId` passen).
+
+### Blocklist-Format
+
+Die Haupt-App schreibt `dns_blocklist.json` (JSON-Array von Domains) in die App
+Group, die Extension liest sie beim Tunnel-Start. Suffix-Match: `instagram.com`
+blockt auch `www.instagram.com`.
+
+> **Target-Mitgliedschaft:** `BlocklistStore.swift` muss in **beide** Targets —
+> Haupt-App (ruft `save`) UND Extension (ruft `load`). Beide teilen sich die
+> App-Group `group.com.meister.blockphone`.
+
+```ts
+import { setDnsBlocklist } from "../lib/vpn";
+await setDnsBlocklist(["instagram.com", "tiktok.com", "x.com"]);
+```
+
+### JS/TS-Seite (nach dem Build)
+
+```ts
+import { startDnsBlocking, stopDnsBlocking, dnsBlockingStatus } from "../lib/vpn";
+
+await startDnsBlocking();            // VPN-Hinweis → Tunnel an
+const { connected } = await dnsBlockingStatus();
+await stopDnsBlocking();             // Tunnel aus
+```
+
+> **Hinweis:** Beim ersten `startVPNTunnel()` zeigt iOS den System-Dialog
+> „Blockphone Blocker möchte VPN-Konfigurationen hinzufügen" — das ist normal
+> und entspricht Freedoms „allow-vpn"-Personal-VPN.
+
+---
+
 ## JS/TS-Seite (nach dem Build)
 
 ```ts

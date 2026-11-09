@@ -4,6 +4,15 @@
   // Re-entry guard. See instagram/filter.js for rationale.
   if (window.__dullPlatformInit_reddit) return;
   var cfg = window.__dullConfig || {};
+  /* Dull's own copy on the page, in the app's language: FilterService
+     passes it in cfg.strings, keyed like Localizable.xcstrings. Any key it
+     does not pass, and every key on Android, which shares this file, keeps
+     the English here. */
+  var strings = cfg.strings || {};
+  function copy(key, english) {
+    var value = strings[key];
+    return typeof value === 'string' && value ? value : english;
+  }
   var processed = new WeakSet();
   var __dullBlockedCount = 0;
   var __dullCountPending = false;
@@ -143,6 +152,49 @@
     }
   }
 
+  /* --- Critical: signed-out home ---
+     Signed out, Reddit serves its home page as the Popular feed
+     (pagetype="popular"), so the popular group's CSS hides the whole feed and
+     its redirect lands on the same page. Say why and offer the log-in in the
+     feed's place, so the page isn't left blank. Reddit's own sign-in check is
+     the user-logged-in attribute on shreddit-app. */
+  var SIGNED_OUT_HOME_ID = 'dull-reddit-signed-out-home';
+  function showSignedOutHomePrompt() {
+    var existing = document.getElementById(SIGNED_OUT_HOME_ID);
+    var app = cfg.popular && document.querySelector('shreddit-app');
+    var feed = app && !app.hasAttribute('user-logged-in') &&
+      app.getAttribute('pagetype') === 'popular' && app.querySelector('.main-container');
+    if (!feed) {
+      if (existing) existing.remove();
+      return;
+    }
+    if (existing && existing.nextElementSibling === feed) return;
+    if (existing) existing.remove();
+
+    var box = document.createElement('div');
+    box.id = SIGNED_OUT_HOME_ID;
+    box.style.cssText = 'padding:48px 24px;text-align:center;' +
+      'color:var(--color-neutral-content-strong, inherit);';
+    var title = document.createElement('p');
+    title.style.cssText = 'margin:0 0 8px;font-size:18px;font-weight:600;';
+    title.textContent = copy('redditFilter.signedOutHome.title', 'log in to see your communities.');
+    var detail = document.createElement('p');
+    detail.style.cssText = 'margin:0 auto 20px;max-width:320px;font-size:14px;line-height:1.4;' +
+      'color:var(--color-neutral-content-weak, inherit);';
+    detail.textContent = copy('redditFilter.signedOutHome.detail',
+      'dull hides reddit\'s popular feed, and signed out, that\'s all reddit\'s home shows. log in and home shows the communities you follow, or search for one above.');
+    var login = document.createElement('a');
+    login.href = '/login/';
+    login.style.cssText = 'display:inline-block;padding:10px 20px;border-radius:999px;' +
+      'font-size:14px;font-weight:600;text-decoration:none;' +
+      'background:var(--color-brand-background, #d93900);color:var(--color-global-white, #fff);';
+    login.textContent = copy('redditFilter.signedOutHome.login', 'log in to reddit');
+    box.appendChild(title);
+    box.appendChild(detail);
+    box.appendChild(login);
+    feed.parentNode.insertBefore(box, feed);
+  }
+
   /* --- Deferred: Suggested communities and engagement bait --- */
   function hideSuggestedContent(root) {
     if (!cfg.suggested) return;
@@ -181,6 +233,19 @@
       'shreddit-async-loader[bundlename="xpromo_nsfw_blocking_modal"]'
     );
     for (var i = 0; i < overlays.length; i++) hideEl(overlays[i]);
+    /* Reddit's blocking app wall for signed-out visitors ("Get the app to
+       keep using Reddit"), shown after 30 s on a feed. It has no close
+       button: <configured-xpromo-modal> portals a full-page sheet into
+       div.configured-xpromo and locks body scrolling. CSS hides the sheet;
+       dismissing it through Reddit's own event also lifts the scroll lock and
+       focus trap. Dispatch when the sheet is attached, i.e. open, because a
+       dismiss before Reddit opens it does not stop the opening. */
+    if (matchingWithin(root, '.configured-xpromo').length) {
+      var walls = document.querySelectorAll('configured-xpromo-modal');
+      for (var w = 0; w < walls.length; w++) {
+        walls[w].dispatchEvent(new CustomEvent('dismiss-configured-xpromo', { bubbles: true }));
+      }
+    }
     /* Selectively hide #bottom-sheet only when it contains app-promo, not login/settings */
     var bottomSheet = document.getElementById('bottom-sheet');
     if (bottomSheet && !processed.has(bottomSheet)) {
@@ -267,6 +332,7 @@
     hidePromotedPosts(root);
     hideRecommendedPosts(root);
     hidePopularAllTabs(root);
+    showSignedOutHomePrompt();
     hideGoogleOneTap(root);
   }
 

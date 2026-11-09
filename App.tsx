@@ -17,7 +17,17 @@ import { isAllowedUrl } from "./lib/blocker";
 import Browser from "./components/Browser";
 import PinGate from "./components/PinGate";
 import LimitSettings from "./components/LimitSettings";
-import { loadStreak, type StreakInfo } from "./lib/streakStore";
+import Shield from "./components/Shield";
+import CommitmentSettings from "./components/CommitmentSettings";
+import InterventionGate from "./components/InterventionGate";
+import ScheduleSettings from "./components/ScheduleSettings";
+import HandoffGuide from "./components/HandoffGuide";
+import ScreenTimeLockIn from "./components/ScreenTimeLockIn";
+import Paywall from "./components/Paywall";
+import Leaderboard from "./components/Leaderboard";
+import { loadGamification, type GamificationInfo } from "./lib/gamificationStore";
+import { hasPin, loadStreak, type StreakInfo } from "./lib/streakStore";
+import { withinReInterventionWindow } from "./lib/interventionStore";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Nothing-Design: monochrome Palette (keine Farbakzente, kein Gradient)
@@ -120,6 +130,35 @@ function Glyph({ size = 230 }: { size?: number }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Unlock-Flow: Intervention (one sec-Muster) → PIN.
+// Re-Intervention-Fenster: kurz zuvor entsperrt → Intervention überspringen.
+// ─────────────────────────────────────────────────────────────────────────────
+function UnlockFlow({ onUnlock }: { onUnlock: () => void }) {
+  const [step, setStep] = useState<"loading" | "intervention" | "pin">("loading");
+
+  useEffect(() => {
+    (async () => {
+      const [pinned, inWindow] = await Promise.all([hasPin(), withinReInterventionWindow()]);
+      // Erster Start (noch kein PIN) oder gerade entsperrt → direkt PIN.
+      setStep(!pinned || inWindow ? "pin" : "intervention");
+    })();
+  }, []);
+
+  if (step === "loading") {
+    return (
+      <SafeAreaView style={[styles.safe, styles.center]}>
+        <StatusBar style="light" />
+        <ActivityIndicator color={C.dot} />
+      </SafeAreaView>
+    );
+  }
+  if (step === "intervention") {
+    return <InterventionGate onDone={() => setStep("pin")} />;
+  }
+  return <PinGate onUnlock={onUnlock} />;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // App
 // ─────────────────────────────────────────────────────────────────────────────
 export default function App() {
@@ -130,10 +169,14 @@ export default function App() {
     SpaceGroteskBold: require("./assets/fonts/SpaceGrotesk-Bold.ttf"),
   });
 
-  const [tab, setTab] = useState<"glyph" | "devices" | "server" | "browser" | "limits">("glyph");
+  const [tab, setTab] = useState<
+    "glyph" | "devices" | "server" | "browser" | "limits" | "shield" | "mehr"
+  >("glyph");
+  const [mehrSub, setMehrSub] = useState<"commitment" | "schedule" | "guides" | "lifetime" | "friends">("commitment");
   const [now, setNow] = useState(() => new Date());
   const [unlocked, setUnlocked] = useState(false);
   const [streak, setStreak] = useState<StreakInfo>({ days: 0 });
+  const [gam, setGam] = useState<GamificationInfo | null>(null);
 
   // Server-Config (aus AsyncStorage, Default = Raspi-AdGuard im Heimnetz)
   const [cfg, setCfg] = useState<Cfg>(DEFAULT_CFG);
@@ -167,7 +210,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (unlocked) loadStreak().then(setStreak).catch(() => {});
+    if (unlocked) {
+      loadStreak().then(setStreak).catch(() => {});
+      loadGamification().then(setGam).catch(() => {});
+    }
   }, [unlocked]);
 
   async function refresh() {
@@ -233,7 +279,19 @@ export default function App() {
   }
 
   if (!unlocked) {
-    return <PinGate onUnlock={() => setUnlocked(true)} />;
+    return <UnlockFlow onUnlock={() => setUnlocked(true)} />;
+  }
+
+  // BROWSER = eigener Vollbild-Modus: Header, Tabs und Statusbar fallen weg,
+  // die WebView bekommt die volle Höhe (fast Vollbild). Zurück über das ✕ im
+  // Browser oder den Tab-Wechsel-Button (führt zu SHIELD).
+  if (tab === "browser") {
+    return (
+      <View style={styles.safe}>
+        <StatusBar style="light" hidden />
+        <Browser onExit={() => setTab("shield")} />
+      </View>
+    );
   }
 
   const hh = String(now.getHours()).padStart(2, "0");
@@ -257,8 +315,10 @@ export default function App() {
             ["glyph", "GLYPH"],
             ["devices", "GERÄTE"],
             ["browser", "BROWSER"],
+            ["shield", "SHIELD"],
             ["limits", "LIMITS"],
             ["server", "SERVER"],
+            ["mehr", "MEHR"],
           ] as const
         ).map(([key, label]) => (
           <Pressable key={key} onPress={() => setTab(key)} style={styles.tab}>
@@ -274,6 +334,12 @@ export default function App() {
           <Text style={styles.clock}>{`${hh}:${mm}`}</Text>
           <Text style={styles.date}>{dateStr}</Text>
           <Text style={styles.streak}>DAY {streak.days} · DAYS ON YOUR TERMS</Text>
+          {gam ? (
+            <Text style={styles.streakSub}>
+              {gam.grace.graceConsumed ? "KULANZ-TAG GENUTZT · " : ""}
+              WOCHE {gam.week.activeDays}/{gam.week.totalDays} TAGE
+            </Text>
+          ) : null}
           <Text style={styles.hint}>Sperre & Fokus — schwarz auf weiß.</Text>
         </View>
       )}
@@ -323,9 +389,46 @@ export default function App() {
         </ScrollView>
       )}
 
-      {tab === "browser" && <Browser />}
+      {tab === "shield" && <Shield />}
 
       {tab === "limits" && <LimitSettings />}
+
+      {tab === "mehr" && (
+        <View style={styles.mehrRoot}>
+          <View style={styles.mehrTabs}>
+            {(
+              [
+                ["commitment", "COMMIT"],
+                ["schedule", "ZEIT"],
+                ["guides", "GUIDES"],
+                ["lifetime", "LIFE"],
+                ["friends", "FRIENDS"],
+              ] as const
+            ).map(([key, label]) => (
+              <Pressable key={key} onPress={() => setMehrSub(key)} style={styles.mehrTab}>
+                <Text style={[styles.mehrTabText, mehrSub === key && styles.mehrTabTextActive]}>
+                  {label}
+                </Text>
+                {mehrSub === key && <View style={styles.tabDot} />}
+              </Pressable>
+            ))}
+          </View>
+          {mehrSub === "commitment" ? (
+            <CommitmentSettings />
+          ) : mehrSub === "schedule" ? (
+            <ScheduleSettings />
+          ) : mehrSub === "lifetime" ? (
+            <Paywall />
+          ) : mehrSub === "friends" ? (
+            <Leaderboard />
+          ) : (
+            <View style={styles.guidesWrap}>
+              <HandoffGuide />
+              <ScreenTimeLockIn />
+            </View>
+          )}
+        </View>
+      )}
 
       {tab === "server" && (
         <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
@@ -394,9 +497,9 @@ const styles = StyleSheet.create({
   },
   tabText: {
     fontFamily: "SpaceGrotesk",
-    fontSize: 12,
+    fontSize: 10,
     color: C.text3,
-    letterSpacing: 2,
+    letterSpacing: 1,
   },
   tabTextActive: { color: C.text },
   tabDot: {
@@ -426,6 +529,14 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     textTransform: "uppercase",
   },
+  streakSub: {
+    fontFamily: "SpaceGrotesk",
+    fontSize: 12,
+    color: C.text3,
+    letterSpacing: 2,
+    marginTop: 4,
+  },
+  guidesWrap: { flex: 1, backgroundColor: C.bg },
   streak: {
     fontFamily: "Ndot",
     fontSize: 13,
@@ -441,6 +552,24 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 18,
   },
+  mehrRoot: { flex: 1, backgroundColor: C.bg },
+  mehrTabs: {
+    flexDirection: "row",
+    borderBottomWidth: 1,
+    borderColor: C.border,
+  },
+  mehrTab: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: 12,
+  },
+  mehrTabText: {
+    fontFamily: "SpaceGrotesk",
+    fontSize: 11,
+    color: C.text3,
+    letterSpacing: 2,
+  },
+  mehrTabTextActive: { color: C.text },
   list: { flex: 1 },
   listContent: { padding: 16, gap: 10 },
   sectionLabel: {

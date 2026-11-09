@@ -14,17 +14,20 @@ function parseState(raw: string | null): LimitState {
   if (!raw) return {};
   try {
     const v = JSON.parse(raw);
-    if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+    if (!v || typeof v !== "object" || Array.isArray(v)) {
+      throw new Error("limit_store_shape");
+    }
     const out: LimitState = {};
     for (const [k, e] of Object.entries(v)) {
       const n = normalizeEntry(e);
       if (n) out[k] = n;
     }
     return out;
-  } catch {
-    /* korrupt → leer */
+  } catch (err) {
+    // Korruptes JSON NICHT als "leer" behandeln: das wäre eine frische Ration
+    // (fail-open). Durchreichen, damit der Aufrufer fail-closed sperrt.
+    throw new Error("limit_store_corrupt", { cause: err });
   }
-  return {};
 }
 
 // Tageswechsel über alle Einträge anwenden (usedSeconds → 0).
@@ -49,12 +52,13 @@ function withLock<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
+// Lese-/Parse-Fehler werden NICHT geschluckt: ein leeres Ergebnis würde als
+// "0 Sekunden verbraucht" gelesen (frische Ration) und wäre damit ein Fail-open —
+// Tageslimit/Sperre ließen sich durch korrupten Storage aushebeln. Aufrufer
+// (z.B. Browser.tsx reloadAll) behandeln den Fehler fail-closed.
 export async function loadLimits(): Promise<LimitState> {
-  try {
-    return rolloverState(parseState(await AsyncStorage.getItem(KEY)), todayKey());
-  } catch {
-    return {};
-  }
+  const raw = await AsyncStorage.getItem(KEY);
+  return rolloverState(parseState(raw), todayKey());
 }
 
 // Eintrag für eine Plattform sichern (falls fehlt, frisch anlegen).

@@ -13,7 +13,7 @@ export type FilterConfig = {
   bottomNav?: boolean; // untere Navigationsleiste
   ads?: boolean; // Ads (json-prune + Auto-Skip)
   subscriptionsLockdown?: boolean; // Abo-Feed ohne Empfehlungen
-  premium?: boolean; // Premium-Background-Playback
+  ytBackground?: boolean; // YouTube: Audio läuft im Hintergrund weiter (Komfort, default aus)
   // Instagram
   reels?: boolean; // Reels-Tab + Reel-Links + Einzel-Reel-Lock
   suggested?: boolean; // "Suggested for you" / "Vorgeschlagen"
@@ -24,11 +24,16 @@ export type FilterConfig = {
   explore?: boolean; // Explore-Feed
   // Facebook
   feedsOnly?: boolean; // nur chronologischer Follow-Feed
+  feedVideoHomeRedirect?: boolean; // Reel-/Video-Links auf Home umbiegen
   // X
   grok?: boolean; // Grok-KI entfernen
   trending?: boolean; // Trends entfernen
+  suggestions?: boolean; // "Wem folgen"/Vorschlags-Zellen (X liest cfg.suggestions)
+  premium?: boolean; // Premium-/Upsell-Werbung entfernen (X)
   // Reddit
   popular?: boolean; // Popular/All → Home
+  // Lokalisierung: Labels in der App-Sprache (Dull übergibt sie als cfg.strings)
+  strings?: Record<string, string>;
 };
 
 export type Platform = keyof typeof PLATFORM_FILTERS;
@@ -49,17 +54,20 @@ export const DEFAULT_FILTER_CONFIG: FilterConfig = {
   bottomNav: true,
   ads: true,
   subscriptionsLockdown: true,
-  premium: false, // Background-Playback ist ein "Premium"-Komfort, default aus
+  ytBackground: false, // Komfort-Feature, nicht Teil von "maximal dull"
   reels: true,
   suggested: true,
-  friendsOnly: false,
-  stories: false,
-  messagesOnly: false,
+  friendsOnly: true, // nur Following statt For-You
+  stories: true, // Story-Leiste weg (Reels-Nachbar)
+  messagesOnly: false, // DMs bleiben nutzbar
   forYou: true,
   explore: true,
-  feedsOnly: false,
+  feedsOnly: true, // chronologischer Follow-Feed
+  feedVideoHomeRedirect: true,
   grok: true,
   trending: true,
+  suggestions: true,
+  premium: true, // Upsell-Werbung weg
   popular: true,
 };
 
@@ -86,6 +94,29 @@ export function buildBeforeContentScript(cfg: FilterConfig): string {
   );
 }
 
+// Läuft VOR dem Parsen des Bodys: blockierendes CSS sofort setzen, damit
+// Werbung/Reels nicht erst sichtbar aufblitzen (die späte Injektion kommt
+// zusätzlich nach DOM-ready). Idempotent über #dull-filter.
+export function buildEarlyCssScript(platform: Platform): string {
+  const f = PLATFORM_FILTERS[platform];
+  if (!f || !f.css) return "true;";
+  return `(function(){
+  var css = ${JSON.stringify(f.css)};
+  function apply(){
+    try {
+      var root = document.head || document.documentElement;
+      if (!root) return false;
+      var el = document.getElementById('dull-filter');
+      if (!el) { el = document.createElement('style'); el.id = 'dull-filter'; root.appendChild(el); }
+      if (el.textContent !== css) el.textContent = css;
+      return true;
+    } catch(e){ return false; }
+  }
+  if (!apply()) document.addEventListener('DOMContentLoaded', apply, { once: true });
+  true;
+})();`;
+}
+
 // Läuft NACH DOM-ready: CSS injizieren (<style id="dull-filter">) + filter.js ausführen.
 // filter.js erwartet window.__dullConfig und prüft periodisch document.getElementById('dull-filter').
 export function buildInjectedScript(platform: Platform, cfg: FilterConfig): string {
@@ -103,8 +134,8 @@ export function buildInjectedScript(platform: Platform, cfg: FilterConfig): stri
     if (!el.parentNode && document.head) document.head.appendChild(el);
   })();`;
 
-  // Premium-Background-Playback nur wenn Flag gesetzt (YouTube).
-  const bgBlock = cfg.premium && bg ? `\n;(function(){ try { ${bg} } catch(e){} })();` : "";
+  // Background-Playback nur wenn Flag gesetzt (YouTube).
+  const bgBlock = cfg.ytBackground && bg ? `\n;(function(){ try { ${bg} } catch(e){} })();` : "";
 
   return `${injectCss}\n;(function(){ try { ${js} } catch(e){} })();${bgBlock}\ntrue;`;
 }
