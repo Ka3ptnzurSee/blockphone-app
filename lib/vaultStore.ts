@@ -14,19 +14,18 @@ const KEY = "pb-vault-v1";
 
 function parse(raw: string | null): Credential[] {
   if (!raw) return [];
-  try {
-    const v = JSON.parse(raw);
-    if (!Array.isArray(v)) return [];
-    const out: Credential[] = [];
-    for (const e of v) {
-      const c = normalizeCredential(e);
-      if (c) out.push(c);
-      if (out.length >= MAX_CREDENTIALS) break;
-    }
-    return out;
-  } catch {
-    return [];
+  // Korruptes JSON / kein Array → werfen statt []: sonst würde ein
+  // anschließendes saveCredential/deleteCredential den echten Tresor mit einer
+  // leeren Liste überschreiben (stiller Verlust). Fail-closed wie limitStore.
+  const v = JSON.parse(raw);
+  if (!Array.isArray(v)) throw new Error("pb-vault: erwartet Array");
+  const out: Credential[] = [];
+  for (const e of v) {
+    const c = normalizeCredential(e);
+    if (c) out.push(c);
+    if (out.length >= MAX_CREDENTIALS) break;
   }
+  return out;
 }
 
 let queue: Promise<unknown> = Promise.resolve();
@@ -37,11 +36,10 @@ function withLock<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 export async function loadVault(): Promise<Credential[]> {
-  try {
-    return parse(await SecureStore.getItemAsync(KEY));
-  } catch {
-    return [];
-  }
+  // Lesefehler propagieren: sonst liefert ein transienter Keychain-Fehler [],
+  // und saveCredential/deleteCredential würden auf Basis von [] persistieren
+  // (stiller Verlust aller Einträge). Fail-closed wie limitStore.
+  return parse(await SecureStore.getItemAsync(KEY));
 }
 
 async function write(list: Credential[]): Promise<Credential[]> {
