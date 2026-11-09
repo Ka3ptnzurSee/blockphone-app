@@ -1,7 +1,7 @@
 // Tests für die Zugangs-Gating-Logik (harte Sperre, Zeitsperre, Fenster, Ration).
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { accessMessage, accessState, type AccessInput } from "./access.ts";
+import { accessMessage, accessState, shouldPauseUsage, type AccessInput } from "./access.ts";
 import { emptyPosting, emptyQuietHours, type PostingQuota, type QuietHours } from "./schedule.ts";
 import type { LimitEntry } from "./limits.ts";
 
@@ -214,4 +214,18 @@ test("accessMessage liefert die passende Überschrift", () => {
     accessMessage(accessState(input({ quiet: middayQuiet })), entry()),
     "ZEITFENSTER · BIS 13:00",
   );
+});
+
+test("shouldPauseUsage: nur aktiver, entsperrter Browser zählt", () => {
+  assert.equal(shouldPauseUsage(true, false), false);
+  assert.equal(shouldPauseUsage(true, true), true); // gesperrt → pausieren
+  assert.equal(shouldPauseUsage(false, false), true); // anderer Tab → pausieren
+  assert.equal(shouldPauseUsage(false, true), true);
+});
+
+test("shouldPauseUsage: kaputte Eingaben pausieren (fail-closed)", () => {
+  assert.equal(shouldPauseUsage(undefined, false), true);
+  assert.equal(shouldPauseUsage("true", false), true);
+  assert.equal(shouldPauseUsage(1, false), true);
+  assert.equal(shouldPauseUsage(true, "no"), false); // nur echtes true sperrt
 });

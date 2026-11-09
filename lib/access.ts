@@ -201,3 +201,11 @@ export function accessMessage(s: AccessState, entry?: LimitEntry | null): string
     }
   }
 }
+
+/* Pausiert die Nutzungszeit? Der Browser bleibt seit PiP gemountet, auch wenn
+   ein anderer Tab sichtbar ist — ohne diese Entscheidung lief die Ration auf
+   Shield/Limits/Mehr weiter, obwohl nichts genutzt wurde. Fail-closed: alles
+   außer einem echten `true` bei `active` pausiert. */
+export function shouldPauseUsage(active: unknown, locked: unknown): boolean {
+  return active !== true || locked === true;
+}

@@ -470,7 +470,7 @@ export default function App() {
           pointerEvents={tab === "browser" ? "auto" : "none"}
         >
           {tab === "browser" ? <StatusBar style="light" hidden /> : null}
-          <Browser onExit={() => setTab("shield")} />
+          <Browser active={tab === "browser"} onExit={() => setTab("shield")} />
         </View>
       ) : null}
     </SafeAreaView>
@@ -483,7 +483,7 @@ const styles = StyleSheet.create({
   // (bleibt aber im View-Tree, damit <video>/PiP weiterlaufen).
   browserLayer: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, backgroundColor: C.bg },
   browserOn: { opacity: 1, zIndex: 10 },
-  browserOff: { opacity: 0, zIndex: -1 },
+  browserOff: { opacity: 0, zIndex: 0 },
   center: { alignItems: "center", justifyContent: "center" },
   header: {
     paddingHorizontal: 20,

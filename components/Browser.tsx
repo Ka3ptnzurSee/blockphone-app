@@ -12,7 +12,7 @@ import {
   View,
 } from "react-native";
 import { WebView, type WebViewNavigation } from "react-native-webview";
-import { accessMessage, accessState } from "../lib/access";
+import { accessMessage, accessState, shouldPauseUsage } from "../lib/access";
 import {
   DEFAULT_FILTER_CONFIG,
   PLATFORM_URLS,
@@ -91,9 +91,9 @@ const CHECKPOINT_MS = 30_000;
 // Chrome (Status/Nav) blendet sich nach dieser Zeit aus → fast Vollbild.
 const CHROME_IDLE_MS = 5_000;
 
-type Props = { onExit: () => void };
+type Props = { onExit: () => void; active?: boolean };
 
-export default function Browser({ onExit }: Props) {
+export default function Browser({ onExit, active = true }: Props) {
   const [platform, setPlatform] = useState<Platform>("youtube");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [chrome, setChrome] = useState(true);
@@ -157,7 +157,7 @@ export default function Browser({ onExit }: Props) {
 
   // ── abgeleitete Werte ───────────────────────────────────────────────────────
   const entry = limits[platform] || freshEntry(platform, todayKey());
-  const elapsed = pausedRef.current
+  const elapsed = pausedRef.current || !active
     ? 0
     : Math.max(0, Math.floor((now - sessionStartRef.current) / 1000));
   const usedTotal = sessionBaseRef.current + elapsed;
@@ -265,17 +265,21 @@ export default function Browser({ onExit }: Props) {
     };
   }, [flushUsage, reloadAll]);
 
-  // 1s-Tick für Countdown + Live-Anzeige.
+  // 1s-Tick für Countdown + Live-Anzeige. Nur im sichtbaren Tab: der Browser
+  // bleibt für PiP gemountet, soll versteckt aber keine Timer verbrennen.
   useEffect(() => {
+    if (!active) return;
+    setNow(Date.now());
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
-  }, []);
+  }, [active]);
 
-  // Checkpoint: alle 30 s persistieren.
+  // Checkpoint: alle 30 s persistieren (nur solange der Tab sichtbar ist).
   useEffect(() => {
+    if (!active) return;
     const t = setInterval(() => void flushUsage().catch(() => {}), CHECKPOINT_MS);
     return () => clearInterval(t);
-  }, [flushUsage]);
+  }, [active, flushUsage]);
 
   // Chrome-Auto-Hide anstoßen.
   useEffect(() => {
@@ -303,19 +307,22 @@ export default function Browser({ onExit }: Props) {
     return () => sub.remove();
   }, [flushUsage, reloadAll]);
 
-  // Bei Sperre: letzte aktive Sekunden sichern, DANN pausieren. Bei Freischaltung: fortsetzen.
+  // Tab-Wechsel oder Sperre: letzte aktive Sekunden sichern, DANN pausieren.
+  // Wieder sichtbar/entsperrt: Sitzungsuhr neu aufsetzen und weiterzählen.
+  // (Der Browser bleibt sonst für PiP gemountet und frisst die Ration auf.)
   useEffect(() => {
-    if (locked && !pausedRef.current) {
+    const mustPause = shouldPauseUsage(active, locked);
+    if (mustPause && !pausedRef.current) {
       const epoch = ++lockEpochRef.current;
       void flushUsage().then(() => {
         if (lockEpochRef.current === epoch) pausedRef.current = true;
       });
-    } else if (!locked && pausedRef.current) {
+    } else if (!mustPause && pausedRef.current) {
       pausedRef.current = false;
       sessionStartRef.current = Date.now();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [locked]);
+  }, [active, locked]);
 
   // Session-Timer: bei abgelaufener Max-Dauer automatisch wieder sperren.
   useEffect(() => {
