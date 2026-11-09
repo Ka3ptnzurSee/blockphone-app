@@ -23,6 +23,7 @@ import {
   type Platform,
 } from "../lib/browser";
 import { buildCaptureScript, buildFillScript } from "../lib/autofill";
+import { buildPipScript, parsePipMessage, pipStatusText } from "../lib/pip";
 import { loadCommitment } from "../lib/commitmentStore";
 import { loadFilterConfig } from "../lib/filterStore";
 import { addUsage, ensureLimit, relock, unlockFor, type LimitState } from "../lib/limitStore";
@@ -91,12 +92,22 @@ const CHECKPOINT_MS = 30_000;
 // Chrome (Status/Nav) blendet sich nach dieser Zeit aus → fast Vollbild.
 const CHROME_IDLE_MS = 5_000;
 
-type Props = { onExit: () => void; active?: boolean };
+type Props = {
+  onExit: () => void;
+  active?: boolean;
+  // In-App-Kleinbild: der Browser schrumpft in eine kleine Ecke (Layer-Größe
+  // macht App.tsx), Bedienleiste kommt dann von dort.
+  mini?: boolean;
+  onMini?: () => void;
+};
 
-export default function Browser({ onExit, active = true }: Props) {
+export default function Browser({ onExit, active = true, mini = false, onMini }: Props) {
   const [platform, setPlatform] = useState<Platform>("youtube");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [chrome, setChrome] = useState(true);
+  // Kurze Rückmeldung für den Kleinbild-Knopf (nur ein Text, kein Overlay).
+  const [pipNote, setPipNote] = useState<string | null>(null);
+  const pipNoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [loading, setLoading] = useState(true);
   const [blocked, setBlocked] = useState(0);
   const [url, setUrl] = useState("");
@@ -286,6 +297,7 @@ export default function Browser({ onExit, active = true }: Props) {
     showChrome();
     return () => {
       if (chromeTimerRef.current) clearTimeout(chromeTimerRef.current);
+      if (pipNoteTimer.current) clearTimeout(pipNoteTimer.current);
     };
   }, [showChrome]);
 
@@ -449,6 +461,21 @@ export default function Browser({ onExit, active = true }: Props) {
     void markSessionStarted(t);
   }
 
+  // System-Kleinbild starten: iOS WKWebView hat keine PiP-API für Seiten, also
+  // feuern wir selbst in die Seite (webkitSetPresentationMode). Idempotent —
+  // mehrfaches Injizieren installiert nichts doppelt.
+  function requestSystemPip() {
+    setPipNote("KLEINBILD…");
+    if (pipNoteTimer.current) clearTimeout(pipNoteTimer.current);
+    pipNoteTimer.current = setTimeout(() => setPipNote(null), 2600);
+    try {
+      webviewRef.current?.injectJavaScript(buildPipScript());
+    } catch {
+      setPipNote("KLEINBILD: WEBVIEW WEG");
+    }
+    showChrome();
+  }
+
   function onMessage(e: { nativeEvent: { data: string } }) {
     let m: Record<string, unknown> | null = null;
     try {
@@ -460,6 +487,15 @@ export default function Browser({ onExit, active = true }: Props) {
       return;
     }
     if (!m) return;
+
+    // 0) Kleinbild-Rückmeldung aus dem injizierten Script.
+    const pipResult = parsePipMessage(e.nativeEvent.data);
+    if (pipResult) {
+      setPipNote(pipStatusText(pipResult));
+      if (pipNoteTimer.current) clearTimeout(pipNoteTimer.current);
+      pipNoteTimer.current = setTimeout(() => setPipNote(null), 2600);
+      return;
+    }
 
     // 1) Block-Zähler der aktiven Plattform (Fremdseiten werden ignoriert).
     if (m.platform === platformRef.current && typeof m.count === "number" && Number.isFinite(m.count)) {
@@ -605,12 +641,27 @@ export default function Browser({ onExit, active = true }: Props) {
         )}
 
         {/* Kopf-Buttons: Plattform-Auswahl + Verlassen (immer sichtbar, klein) */}
+        {!mini ? (
         <SafeAreaView style={styles.topBar} pointerEvents="box-none">
           <View style={styles.topRow}>
             <Pressable onPress={() => setPickerOpen((v) => !v)} style={styles.pill}>
               <Text style={styles.pillText}>{pickerOpen ? "SCHLIESSEN" : "APPS"}</Text>
             </Pressable>
             <View style={styles.topRight}>
+              <Pressable onPress={requestSystemPip} style={styles.pill}>
+                <Text style={styles.pillText}>⧉ PIP</Text>
+              </Pressable>
+              {onMini ? (
+                <Pressable
+                  onPress={() => {
+                    setPickerOpen(false);
+                    onMini();
+                  }}
+                  style={styles.pill}
+                >
+                  <Text style={styles.pillText}>▭ KLEIN</Text>
+                </Pressable>
+              ) : null}
               <Pressable
                 onPress={() => {
                   setVaultOpen(true);
@@ -627,7 +678,13 @@ export default function Browser({ onExit, active = true }: Props) {
               </Pressable>
             </View>
           </View>
+          {pipNote ? (
+            <View style={styles.pipNote} pointerEvents="none">
+              <Text style={styles.pipNoteText}>{pipNote}</Text>
+            </View>
+          ) : null}
         </SafeAreaView>
+        ) : null}
 
         {/* Plattform-Picker als Overlay (fast Vollbild bleibt erhalten) */}
         {pickerOpen && (
@@ -778,7 +835,7 @@ export default function Browser({ onExit, active = true }: Props) {
       </View>
 
       {/* Status + Navigation: Auto-Hide für fast Vollbild, Tap am Rand holt sie zurück */}
-      {chrome && !locked && !pinStep && !intervention ? (
+      {chrome && !locked && !pinStep && !intervention && !mini ? (
         <SafeAreaView style={styles.bottomWrap} pointerEvents="box-none">
           <View style={styles.bar}>
             <Text style={styles.status} numberOfLines={1}>
@@ -824,7 +881,7 @@ export default function Browser({ onExit, active = true }: Props) {
       ) : null}
 
       {/* Schmaler Tap-Streifen unten: Chrome einblenden ohne die Seite zu blockieren */}
-      {!chrome && !locked && !pinStep && !intervention ? (
+      {!chrome && !locked && !pinStep && !intervention && !mini ? (
         <Pressable onPress={showChrome} style={styles.revealStrip}>
           <View style={styles.revealDot} />
         </Pressable>
@@ -867,6 +924,22 @@ const styles = StyleSheet.create({
     backgroundColor: C.bg,
   },
   topBar: { position: "absolute", top: 0, left: 0, right: 0 },
+  pipNote: {
+    alignSelf: "center",
+    marginTop: 6,
+    backgroundColor: "rgba(0,0,0,0.82)",
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+  },
+  pipNoteText: {
+    fontFamily: "SpaceGrotesk",
+    fontSize: 10,
+    color: C.text,
+    letterSpacing: 2,
+  },
   topRow: {
     flexDirection: "row",
     alignItems: "center",

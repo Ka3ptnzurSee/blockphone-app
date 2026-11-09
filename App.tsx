@@ -2,12 +2,14 @@ import { StatusBar } from "expo-status-bar";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  PanResponder,
   Pressable,
   SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { useFonts } from "expo-font";
@@ -158,6 +160,13 @@ function UnlockFlow({ onUnlock }: { onUnlock: () => void }) {
   return <PinGate onUnlock={onUnlock} />;
 }
 
+// In-App-Kleinbild: kleines, verschiebbares Browser-Fenster über den Tabs.
+const MINI_W = 168;
+const MINI_H = 300;
+const MINI_PAD = 8;
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), Math.max(lo, hi));
+
 // ─────────────────────────────────────────────────────────────────────────────
 // App
 // ─────────────────────────────────────────────────────────────────────────────
@@ -177,12 +186,63 @@ export default function App() {
   const [unlocked, setUnlocked] = useState(false);
   // Browser-Layer bleibt nach dem ersten Öffnen gemountet (PiP/Video läuft weiter).
   const [browserMounted, setBrowserMounted] = useState(false);
+  // Kleinbild: Browser läuft klein in der Ecke weiter (Video bleibt an),
+  // Tabs darunter bleiben bedienbar.
+  const [mini, setMini] = useState(false);
+  const [miniPos, setMiniPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const miniPosRef = useRef({ x: 0, y: 0 });
+  const dragStartRef = useRef({ x: 0, y: 0 });
+  const { width: winW, height: winH } = useWindowDimensions();
   const [streak, setStreak] = useState<StreakInfo>({ days: 0 });
   const [gam, setGam] = useState<GamificationInfo | null>(null);
 
   useEffect(() => {
     if (tab === "browser") setBrowserMounted(true);
   }, [tab]);
+
+  // Kleinbild: Startposition oben links im sichtbaren Rest (über den Tabs) und
+  // bei Drehung/Fenstergröße im Bild halten.
+  useEffect(() => {
+    if (!mini) return;
+    const maxX = Math.max(MINI_PAD, winW - MINI_W - MINI_PAD);
+    const maxY = Math.max(MINI_PAD, winH - MINI_H - MINI_PAD);
+    setMiniPos((p) => {
+      const next =
+        p.x > 0 || p.y > 0
+          ? { x: clamp(p.x, MINI_PAD, maxX), y: clamp(p.y, MINI_PAD, maxY) }
+          : { x: maxX - 4, y: Math.max(MINI_PAD, maxY - 104) };
+      miniPosRef.current = next;
+      return next;
+    });
+  }, [mini, winW, winH]);
+
+  const dimsRef = useRef({ w: winW, h: winH });
+  dimsRef.current = { w: winW, h: winH };
+
+  // Griff über dem Kleinbild: ziehen = verschieben, antippen = wieder groß.
+  const miniPan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        dragStartRef.current = { ...miniPosRef.current };
+      },
+      onPanResponderMove: (_e, g) => {
+        const { w, h } = dimsRef.current;
+        const maxX = Math.max(MINI_PAD, w - MINI_W - MINI_PAD);
+        const maxY = Math.max(MINI_PAD, h - MINI_H - MINI_PAD);
+        const next = {
+          x: clamp(dragStartRef.current.x + g.dx, MINI_PAD, maxX),
+          y: clamp(dragStartRef.current.y + g.dy, MINI_PAD, maxY),
+        };
+        miniPosRef.current = next;
+        setMiniPos(next);
+      },
+      onPanResponderRelease: (_e, g) => {
+        if (Math.abs(g.dx) < 6 && Math.abs(g.dy) < 6) setTab("browser");
+      },
+    }),
+  ).current;
 
   // Server-Config (aus AsyncStorage, Default = Raspi-AdGuard im Heimnetz)
   const [cfg, setCfg] = useState<Cfg>(DEFAULT_CFG);
@@ -463,15 +523,51 @@ export default function App() {
       )}
       {/* Browser: einmal geöffnet bleibt er gemountet, damit Video/PiP beim
           Tab-Wechsel nicht abgewürgt wird. Aktiv = Vollbild über allem,
-          inaktiv = unsichtbar und ohne Touches. */}
+          Kleinbild = kleines verschiebbares Fenster, sonst unsichtbar. */}
       {browserMounted ? (
         <View
-          style={[styles.browserLayer, tab === "browser" ? styles.browserOn : styles.browserOff]}
-          pointerEvents={tab === "browser" ? "auto" : "none"}
+          style={[
+            styles.browserLayer,
+            tab === "browser"
+              ? styles.browserOn
+              : mini
+                ? [styles.browserMini, { left: miniPos.x, top: miniPos.y }]
+                : styles.browserOff,
+          ]}
+          pointerEvents={tab === "browser" || mini ? "auto" : "none"}
         >
           {tab === "browser" ? <StatusBar style="light" hidden /> : null}
-          <Browser active={tab === "browser"} onExit={() => setTab("shield")} />
+          <Browser
+            active={tab === "browser"}
+            mini={mini && tab !== "browser"}
+            onMini={() => setMini(true)}
+            onExit={() => {
+              setMini(false);
+              setTab("shield");
+            }}
+          />
         </View>
+      ) : null}
+
+      {/* Kleinbild-Griff: ziehen = verschieben, kurzer Tap = wieder Vollbild. */}
+      {mini && tab !== "browser" ? (
+        <>
+          <View
+            style={[styles.miniBar, { left: miniPos.x, top: miniPos.y - 26 }]}
+            {...miniPan.panHandlers}
+          >
+            <Text style={styles.miniBarText}>⤢ KLEINBILD</Text>
+          </View>
+          <Pressable
+            onPress={() => {
+              setMini(false);
+              setTab("shield");
+            }}
+            style={[styles.miniClose, { left: miniPos.x + MINI_W - 26, top: miniPos.y - 26 }]}
+          >
+            <Text style={styles.miniCloseText}>✕</Text>
+          </Pressable>
+        </>
       ) : null}
     </SafeAreaView>
   );
@@ -479,11 +575,62 @@ export default function App() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
-  // Browser-Layer: aktiv Vollbild über Header/Tabs, inaktiv unsichtbar
-  // (bleibt aber im View-Tree, damit <video>/PiP weiterlaufen).
-  browserLayer: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, backgroundColor: C.bg },
-  browserOn: { opacity: 1, zIndex: 10 },
-  browserOff: { opacity: 0, zIndex: 0 },
+  // Browser-Layer: aktiv Vollbild über Header/Tabs, als Kleinbild ein kleines
+  // Fenster (bleibt im View-Tree, damit <video>/PiP weiterlaufen).
+  browserLayer: { position: "absolute" },
+  browserOn: {
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: C.bg,
+    opacity: 1,
+    zIndex: 10,
+  },
+  browserOff: { left: 0, right: 0, top: 0, bottom: 0, opacity: 0, zIndex: 0 },
+  browserMini: {
+    width: MINI_W,
+    height: MINI_H,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: C.border,
+    overflow: "hidden",
+    backgroundColor: C.bg,
+    zIndex: 20,
+  },
+  miniBar: {
+    position: "absolute",
+    width: MINI_W - 26,
+    height: 26,
+    justifyContent: "center",
+    paddingHorizontal: 10,
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    borderColor: C.border,
+    borderTopLeftRadius: 12,
+    zIndex: 21,
+  },
+  miniBarText: {
+    fontFamily: "SpaceGrotesk",
+    fontSize: 9,
+    color: C.text2,
+    letterSpacing: 2,
+  },
+  miniClose: {
+    position: "absolute",
+    width: 26,
+    height: 26,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    borderColor: C.border,
+    borderTopRightRadius: 12,
+    zIndex: 21,
+  },
+  miniCloseText: { fontFamily: "SpaceGrotesk", fontSize: 11, color: C.text2 },
   center: { alignItems: "center", justifyContent: "center" },
   header: {
     paddingHorizontal: 20,
