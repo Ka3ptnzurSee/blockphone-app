@@ -44,7 +44,8 @@ final class DnsFilter {
     // Bei Überlast wird gedroppt (der DNS-Client wiederholt die Anfrage).
     private let semaphore = DispatchSemaphore(value: 16)
     private let connLock = NSLock()
-    private var liveConnections: Set<NWConnection> = []
+    // NWConnection ist nicht Hashable → über ObjectIdentifier tracken.
+    private var liveConnections: [ObjectIdentifier: NWConnection] = [:]
 
     init(blocklist: [String]) {
         self.blocklist = Set(
@@ -62,7 +63,7 @@ final class DnsFilter {
         let conns = liveConnections
         liveConnections.removeAll()
         connLock.unlock()
-        conns.forEach { $0.cancel() }
+        conns.values.forEach { $0.cancel() }
     }
 
     // MARK: - Paket parsen (IPv4/UDP/DNS-Anfrage)
@@ -188,10 +189,10 @@ final class DnsFilter {
     // MARK: - Connection-Tracking
 
     private func track(_ conn: NWConnection) {
-        connLock.lock(); liveConnections.insert(conn); connLock.unlock()
+        connLock.lock(); liveConnections[ObjectIdentifier(conn)] = conn; connLock.unlock()
     }
     private func untrack(_ conn: NWConnection) {
-        connLock.lock(); liveConnections.remove(conn); connLock.unlock()
+        connLock.lock(); liveConnections.removeValue(forKey: ObjectIdentifier(conn)); connLock.unlock()
     }
 
     // MARK: - DNS-Anfrage parsen (QNAME + Validierung)
