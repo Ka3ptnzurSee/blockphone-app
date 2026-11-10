@@ -10,6 +10,15 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.meister.blockphone",
+      "appleTeamId": "VW2SBC8228",
+      "entitlements": {
+        "com.apple.developer.networking.networkextension": [
+          "packet-tunnel-provider"
+        ],
+        "com.apple.developer.networking.vpn.api": [
+          "allow-vpn"
+        ]
+      },
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "CFBundleDisplayName": "Blockphone",
@@ -20,7 +29,7 @@
           "audio"
         ]
       },
-      "buildNumber": "128"
+      "buildNumber": "130"
     },
     "android": {
       "package": "com.meister.blockphone",
@@ -38,8 +47,7 @@
     "plugins": [
       "expo-splash-screen",
       "expo-secure-store",
-      "./plugins/withScreenTimeShield",
-      "./plugins/withNetworkBlocker"
+      "@bacons/apple-targets"
     ],
     "extra": {
       "eas": {
