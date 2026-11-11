@@ -20,8 +20,8 @@ public class VpnManagerModule: Module {
     public func definition() -> ModuleDefinition {
         Name("VpnManager")
 
-        AsyncFunction("start") { (domains: [String]) async throws -> Bool in
-            try await VpnService.shared.start(blocklist: domains)
+        AsyncFunction("start") { (domains: [String], allowlist: [String], mode: String) async throws -> Bool in
+            try await VpnService.shared.start(blocklist: domains, allowlist: allowlist, mode: mode)
             return true
         }
 
@@ -98,13 +98,17 @@ final class VpnService {
         }
     }
 
-    func start(blocklist: [String]) async throws {
+    func start(blocklist: [String], allowlist: [String] = [], mode: String = "blocklist") async throws {
         let mgr = try await manager()
 
         let proto = NETunnelProviderProtocol()
         proto.providerBundleIdentifier = Self.providerBundleId
         proto.serverAddress = "Blockphone DNS Filter"
-        proto.providerConfiguration = ["blocklist": clean(blocklist)]
+        proto.providerConfiguration = [
+            "blocklist": clean(blocklist),
+            "allowlist": clean(allowlist),
+            "mode": mode == "allowlist" ? "allowlist" : "blocklist",
+        ]
         proto.disconnectOnSleep = false
 
         mgr.protocolConfiguration = proto

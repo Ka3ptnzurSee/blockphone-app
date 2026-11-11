@@ -8,6 +8,7 @@ import {
   dnsBlockingAvailable,
   dnsBlockingStatus,
   enableDnsBlocking,
+  type DnsMode,
 } from "../lib/vpn";
 
 // Nothing-Design-Palette (identisch zu App.tsx)
@@ -35,6 +36,7 @@ const LABELS: Record<string, string> = {
 // Blockt die Plattform-Domains über DNS — gilt app-übergreifend (auch native Apps),
 // nicht nur im eingebauten Browser.
 const SELECTION_KEY = "pb-dns-platforms";
+const MODE_KEY = "pb-dns-mode";
 
 export default function Shield() {
   const available = dnsBlockingAvailable();
@@ -45,6 +47,8 @@ export default function Shield() {
   const [error, setError] = useState<string | null>(null);
   // Welche Plattformen sollen systemweit gesperrt werden (persistiert).
   const [selected, setSelected] = useState<Platform[]>(ALL_PLATFORMS);
+  // "blocklist" = nur die Plattformen sperren, "allowlist" = Internet aus.
+  const [mode, setMode] = useState<DnsMode>("blocklist");
 
   async function refresh() {
     try {
@@ -72,8 +76,32 @@ export default function Shield() {
       } catch {
         /* Auswahl bleibt auf Default */
       }
+      try {
+        const m = await AsyncStorage.getItem(MODE_KEY);
+        if (m === "allowlist" || m === "blocklist") setMode(m);
+      } catch {
+        /* Modus bleibt auf Default */
+      }
     })();
   }, []);
+
+  async function changeMode(next: DnsMode) {
+    if (busy || next === mode) return;
+    setMode(next);
+    try {
+      await AsyncStorage.setItem(MODE_KEY, next);
+    } catch {
+      /* best effort */
+    }
+    // Laufenden Tunnel sofort umstellen.
+    if (connected) {
+      try {
+        await enableDnsBlocking(selected, next);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    }
+  }
 
   async function togglePlatform(p: Platform) {
     if (busy) return;
@@ -87,7 +115,7 @@ export default function Shield() {
     // Laufenden Tunnel sofort mit der neuen Liste versorgen.
     if (connected && next.length > 0) {
       try {
-        await enableDnsBlocking(next);
+        await enableDnsBlocking(next, mode);
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       }
@@ -119,7 +147,7 @@ export default function Shield() {
           setError("Keine Plattform ausgewählt.");
           return;
         }
-        await enableDnsBlocking(selected);
+        await enableDnsBlocking(selected, mode);
       }
       // Der Tunnel braucht einen Moment (iOS-Dialog + Verbindungsaufbau) →
       // ein paar Mal nachfassen, statt sofort "INAKTIV" anzuzeigen.
@@ -168,6 +196,24 @@ export default function Shield() {
         </View>
 
         <View style={styles.chips}>
+          {(
+            [
+              ["blocklist", "NUR PLATTFORMEN"],
+              ["allowlist", "INTERNET AUS"],
+            ] as const
+          ).map(([m, label]) => (
+            <Pressable
+              key={m}
+              onPress={() => void changeMode(m)}
+              disabled={busy}
+              style={[styles.chip, mode === m && styles.chipOn]}
+            >
+              <Text style={[styles.chipText, mode === m && styles.chipTextOn]}>{label}</Text>
+            </Pressable>
+          ))}
+        </View>
+
+        <View style={styles.chips}>
           {ALL_PLATFORMS.map((p) => {
             const on = selected.includes(p);
             return (
@@ -185,7 +231,9 @@ export default function Shield() {
           })}
         </View>
         <Text style={styles.meta}>
-          {selected.length} PLATTFORMEN · {domainCount} DOMAINS
+          {mode === "allowlist"
+            ? "ALLES GESPERRT (kein DNS) — nur Ausnahmen kommen durch"
+            : `${selected.length} PLATTFORMEN · ${domainCount} DOMAINS`}
           {status ? ` · ${status.toUpperCase()}` : ""}
         </Text>
 

@@ -34,19 +34,25 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         set { stateLock.lock(); defer { stateLock.unlock() }; _running = newValue }
     }
 
-    /// Blocklist aus der Provider-Konfiguration (bevorzugt) oder App Group.
-    private func loadBlocklist() -> [String] {
+    /// Regeln aus der Provider-Konfiguration (bevorzugt) oder App Group.
+    /// mode = "blocklist" (nur Gelistetes sperren) oder "allowlist" (alles außer
+    /// Gelistetem sperren = Internet aus).
+    private func loadRules() -> (blocklist: [String], allowlist: [String], mode: String) {
         if let proto = protocolConfiguration as? NETunnelProviderProtocol,
-           let raw = proto.providerConfiguration?["blocklist"] as? [String],
-           !raw.isEmpty {
-            return raw
+           let cfg = proto.providerConfiguration {
+            let block = cfg["blocklist"] as? [String] ?? []
+            let allow = cfg["allowlist"] as? [String] ?? []
+            let mode = cfg["mode"] as? String ?? "blocklist"
+            if !block.isEmpty || !allow.isEmpty || mode == "allowlist" {
+                return (block, allow, mode)
+            }
         }
-        return BlocklistStore.load()
+        return (BlocklistStore.load(), [], "blocklist")
     }
 
     override func startTunnel(options: [String: NSObject]?,
                               completionHandler: @escaping (Error?) -> Void) {
-        let blocklist = loadBlocklist()
+        let rules = loadRules()
 
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "10.8.0.1")
         let ipv4 = NEIPv4Settings(addresses: ["10.8.0.1"], subnetMasks: ["255.255.255.255"])
@@ -55,7 +61,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         settings.dnsSettings = NEDNSSettings(servers: ["10.8.0.1"])
         settings.mtu = 1280
 
-        let f = DnsFilter(blocklist: blocklist)
+        let f = DnsFilter(blocklist: rules.blocklist, allowlist: rules.allowlist, mode: rules.mode)
         filter = f
 
         setTunnelNetworkSettings(settings) { [weak self] error in

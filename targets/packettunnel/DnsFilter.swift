@@ -49,14 +49,33 @@ final class DnsFilter {
     // NWConnection ist nicht Hashable → über ObjectIdentifier tracken.
     private var liveConnections: [ObjectIdentifier: NWConnection] = [:]
 
-    init(blocklist: [String]) {
-        self.blocklist = Set(
-            blocklist
-                .map { $0.lowercased()
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                    .trimmingCharacters(in: CharacterSet(charactersIn: ".")) }
-                .filter { !$0.isEmpty }
-        )
+    /// "blocklist" = nur die gelisteten Domains sperren.
+    /// "allowlist" = ALLES sperren außer den gelisteten Domains (= Internet aus).
+    private let mode: String
+    private let allowlist: Set<String>
+
+    init(blocklist: [String], allowlist: [String] = [], mode: String = "blocklist") {
+        self.blocklist = Set(Self.clean(blocklist))
+        self.allowlist = Set(Self.clean(allowlist))
+        self.mode = mode == "allowlist" ? "allowlist" : "blocklist"
+    }
+
+    private static func clean(_ domains: [String]) -> [String] {
+        domains
+            .map { $0.lowercased()
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: ".")) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// Suffix-Match: "www.instagram.com" trifft "instagram.com".
+    private static func matches(_ name: String, in set: Set<String>) -> Bool {
+        var parts = name.split(separator: ".").map(String.init)
+        while !parts.isEmpty {
+            if set.contains(parts.joined(separator: ".")) { return true }
+            parts.removeFirst()
+        }
+        return false
     }
 
     /// Bricht alle laufenden DoT-Verbindungen ab (wird von `stopTunnel` aufgerufen).
@@ -97,12 +116,11 @@ final class DnsFilter {
     // MARK: - Blocklist
 
     func isBlocked(_ name: String) -> Bool {
-        var parts = name.split(separator: ".").map(String.init)
-        while !parts.isEmpty {
-            if blocklist.contains(parts.joined(separator: ".")) { return true }
-            parts.removeFirst()
+        if mode == "allowlist" {
+            // Internet aus: alles sperren, was nicht ausdrücklich erlaubt ist.
+            return !Self.matches(name, in: allowlist)
         }
-        return false
+        return Self.matches(name, in: blocklist)
     }
 
     /// Synchron: NXDOMAIN-Antwort (komplettes IP/UDP/DNS-Paket) für geblockte Domain.

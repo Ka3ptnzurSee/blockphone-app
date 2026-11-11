@@ -13,8 +13,12 @@ export type VpnStatus = {
 };
 
 export type VpnNativeModule = {
-  /** Startet den DNS-Tunnel mit dieser Blocklist (Domains, Suffix-Match). */
-  start(domains: string[]): Promise<boolean>;
+  /**
+   * Startet den DNS-Tunnel.
+   * mode "blocklist" = nur `domains` sperren.
+   * mode "allowlist" = ALLES sperren außer `allowlist` (= Internet aus).
+   */
+  start(domains: string[], allowlist: string[], mode: "blocklist" | "allowlist"): Promise<boolean>;
   /** Stoppt den Tunnel und schaltet On-Demand ab. */
   stop(): Promise<boolean>;
   /** Verbindungsstatus des Tunnels. */

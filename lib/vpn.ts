@@ -8,10 +8,16 @@ import type { Platform } from "./browser";
 import { buildDnsBlocklist } from "./dnsBlocklist";
 import VpnManager, { type VpnStatus } from "../modules/vpn-manager";
 
+export type DnsMode = "blocklist" | "allowlist";
+
 /** Startet das systemweite DNS-Blocking (fragt beim ersten Mal den VPN-Hinweis ab). */
-export async function startDnsBlocking(domains: string[]): Promise<boolean> {
+export async function startDnsBlocking(
+  domains: string[],
+  allowlist: string[] = [],
+  mode: DnsMode = "blocklist",
+): Promise<boolean> {
   if (!VpnManager) throw new Error("VpnManager-Modul fehlt — nur im nativen Build verfügbar");
-  return VpnManager.start(domains);
+  return VpnManager.start(domains, allowlist, mode);
 }
 
 /** Stoppt den Tunnel (hebt alle DNS-Blocks auf). */
@@ -37,11 +43,17 @@ export async function setDnsBlocklist(domains: string[]): Promise<boolean> {
  * Blocklist bauen → Tunnel mit dieser Liste starten.
  * Leere Auswahl = Blocking aus (stop statt start).
  */
-export async function enableDnsBlocking(platforms: readonly Platform[]): Promise<boolean> {
+export async function enableDnsBlocking(
+  platforms: readonly Platform[],
+  mode: DnsMode = "blocklist",
+  allowlist: string[] = [],
+): Promise<boolean> {
   if (!VpnManager) throw new Error("VpnManager-Modul fehlt — nur im nativen Build verfügbar");
   const domains = buildDnsBlocklist(platforms);
-  if (domains.length === 0) return VpnManager.stop();
-  return VpnManager.start(domains);
+  // "Internet aus" braucht keine Plattform-Auswahl — alles außer der Allowlist
+  // wird gesperrt.
+  if (mode === "blocklist" && domains.length === 0) return VpnManager.stop();
+  return VpnManager.start(domains, allowlist, mode);
 }
 
 /** Systemweites DNS-Blocking deaktivieren (Tunnel stoppen). */
