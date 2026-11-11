@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { ALL_PLATFORMS } from "../lib/dnsBlocklist";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { ALL_PLATFORMS, PLATFORM_DOMAINS } from "../lib/dnsBlocklist";
+import type { Platform } from "../lib/browser";
 import {
   disableDnsBlocking,
   dnsBlockingAvailable,
@@ -32,21 +34,67 @@ const LABELS: Record<string, string> = {
 // Systemweites DNS-Blocking (PacketTunnelProvider, Personal VPN).
 // Blockt die Plattform-Domains über DNS — gilt app-übergreifend (auch native Apps),
 // nicht nur im eingebauten Browser.
+const SELECTION_KEY = "pb-dns-platforms";
+
 export default function Shield() {
   const available = dnsBlockingAvailable();
   const busyRef = useRef(false);
   const [connected, setConnected] = useState(false);
+  const [status, setStatus] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Welche Plattformen sollen systemweit gesperrt werden (persistiert).
+  const [selected, setSelected] = useState<Platform[]>(ALL_PLATFORMS);
 
   async function refresh() {
     try {
       const s = await dnsBlockingStatus();
       setConnected(s.connected);
+      setStatus(s.status ?? "");
     } catch {
       setConnected(false);
+      setStatus("unavailable");
     }
   }
+
+  // Auswahl laden (kaputte/leere Werte → alle Plattformen).
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(SELECTION_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return;
+        const valid = parsed.filter((p): p is Platform =>
+          (ALL_PLATFORMS as string[]).includes(p),
+        );
+        if (valid.length > 0) setSelected(valid);
+      } catch {
+        /* Auswahl bleibt auf Default */
+      }
+    })();
+  }, []);
+
+  async function togglePlatform(p: Platform) {
+    if (busy) return;
+    const next = selected.includes(p) ? selected.filter((x) => x !== p) : [...selected, p];
+    setSelected(next);
+    try {
+      await AsyncStorage.setItem(SELECTION_KEY, JSON.stringify(next));
+    } catch {
+      /* best effort */
+    }
+    // Laufenden Tunnel sofort mit der neuen Liste versorgen.
+    if (connected && next.length > 0) {
+      try {
+        await enableDnsBlocking(next);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    }
+  }
+
+  const domainCount = selected.reduce((n, p) => n + PLATFORM_DOMAINS[p].length, 0);
 
   // Poll-Schleife darf nach dem Unmount nichts mehr setzen.
   const mountedRef = useRef(true);
@@ -67,7 +115,11 @@ export default function Shield() {
       if (connected) {
         await disableDnsBlocking();
       } else {
-        await enableDnsBlocking(ALL_PLATFORMS);
+        if (selected.length === 0) {
+          setError("Keine Plattform ausgewählt.");
+          return;
+        }
+        await enableDnsBlocking(selected);
       }
       // Der Tunnel braucht einen Moment (iOS-Dialog + Verbindungsaufbau) →
       // ein paar Mal nachfassen, statt sofort "INAKTIV" anzuzeigen.
@@ -77,7 +129,10 @@ export default function Shield() {
         if (!mountedRef.current) return;
         s = await dnsBlockingStatus();
       }
-      if (mountedRef.current) setConnected(s.connected);
+      if (mountedRef.current) {
+        setConnected(s.connected);
+        setStatus(s.status ?? "");
+      }
     } catch (e) {
       if (mountedRef.current) setError(e instanceof Error ? e.message : String(e));
       await refresh();
@@ -113,12 +168,26 @@ export default function Shield() {
         </View>
 
         <View style={styles.chips}>
-          {ALL_PLATFORMS.map((p) => (
-            <View key={p} style={styles.chip}>
-              <Text style={styles.chipText}>{LABELS[p] ?? p.toUpperCase()}</Text>
-            </View>
-          ))}
+          {ALL_PLATFORMS.map((p) => {
+            const on = selected.includes(p);
+            return (
+              <Pressable
+                key={p}
+                onPress={() => void togglePlatform(p)}
+                disabled={busy}
+                style={[styles.chip, on && styles.chipOn]}
+              >
+                <Text style={[styles.chipText, on && styles.chipTextOn]}>
+                  {LABELS[p] ?? p.toUpperCase()}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
+        <Text style={styles.meta}>
+          {selected.length} PLATTFORMEN · {domainCount} DOMAINS
+          {status ? ` · ${status.toUpperCase()}` : ""}
+        </Text>
 
         {error ? <Text style={styles.error}>⚠ {error}</Text> : null}
 
@@ -190,10 +259,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
   },
+  chipOn: { borderColor: C.dot, backgroundColor: C.dot },
   chipText: {
     fontFamily: "SpaceGrotesk",
     fontSize: 11,
     color: C.text2,
+    letterSpacing: 1,
+  },
+  chipTextOn: { color: C.bg, fontWeight: "700" },
+  meta: {
+    fontFamily: "SpaceGrotesk",
+    fontSize: 10,
+    color: C.text3,
     letterSpacing: 1,
   },
   error: {

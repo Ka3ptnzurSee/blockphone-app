@@ -38,6 +38,8 @@ final class DnsFilter {
 
     private let dotServer = "1.1.1.1"          // IP-Literal → keine DNS-Auflösung nötig
     private let dotPort: UInt16 = 853
+    private let plainServer = "1.1.1.1"   // UDP-Fallback
+    private let plainPort: UInt16 = 53
     private let dotSni = "cloudflare-dns.com"  // SNI für Zertifikat-Validierung
 
     // Ressourcen-Begrenzung: max. 16 gleichzeitige DoT-Verbindungen.
@@ -116,14 +118,77 @@ final class DnsFilter {
         return envelope(for: req, dnsAnswer: dns)
     }
 
-    /// Asynchron: DoT-Weiterleitung, dann komplettes Antwort-Paket via Callback.
+    /// Asynchron: DoT-Weiterleitung mit UDP-Fallback, dann komplettes
+    /// Antwort-Paket via Callback.
+    ///
+    /// Wichtig: Wenn DoT (Port 853) im Netz geblockt ist, darf der Tunnel nicht
+    /// das gesamte DNS verschlucken — sonst hat das Gerät gar kein Internet
+    /// mehr. Deshalb nach einem DoT-Fehlschlag einmal klassisch per UDP fragen.
     func forward(_ req: Request, completion: @escaping (Data?) -> Void) {
         // Überlast → droppen statt unbegrenzt Verbindungen aufzubauen.
         guard semaphore.wait(timeout: .now()) == .success else {
             completion(nil)
             return
         }
+        forwardDoT(req) { [weak self] answer in
+            guard let self = self else { return }
+            if let answer = answer {
+                self.semaphore.signal()
+                completion(answer)
+                return
+            }
+            self.forwardUDP(req) { udpAnswer in
+                self.semaphore.signal()
+                completion(udpAnswer)
+            }
+        }
+    }
 
+    /// Klassisches DNS über UDP/53 (Fallback, unverschlüsselt).
+    private func forwardUDP(_ req: Request, completion: @escaping (Data?) -> Void) {
+        let conn = NWConnection(host: NWEndpoint.Host(plainServer),
+                                port: NWEndpoint.Port(rawValue: plainPort)!,
+                                using: .udp)
+        let state = QueryState()
+
+        let finish: (Data?) -> Void = { [weak self] result in
+            guard !state.finished else { return }
+            state.finished = true
+            state.timeout?.cancel()
+            state.timeout = nil
+            conn.stateUpdateHandler = nil
+            conn.cancel()
+            self?.untrack(conn)
+            completion(result)
+        }
+
+        state.timeout = DispatchWorkItem { conn.cancel() }
+        queue.asyncAfter(deadline: .now() + 3, execute: state.timeout!)
+
+        track(conn)
+        conn.stateUpdateHandler = { s in
+            switch s {
+            case .failed, .cancelled:
+                finish(nil)
+            default:
+                break
+            }
+        }
+
+        conn.start(queue: queue)
+        conn.send(content: req.dnsData, completion: .contentProcessed { error in
+            if error != nil { finish(nil); return }
+            conn.receiveMessage { [weak self] data, _, _, error in
+                guard let self = self, error == nil, let data, data.count >= 12,
+                      data[0] == req.dnsData[0], data[1] == req.dnsData[1],
+                      (data[2] & 0x80) != 0 else { finish(nil); return }
+                finish(self.envelope(for: req, dnsAnswer: data))
+            }
+        })
+    }
+
+    /// DoT-Weiterleitung (verschlüsselt, Port 853).
+    private func forwardDoT(_ req: Request, completion: @escaping (Data?) -> Void) {
         let tlsOptions = NWProtocolTLS.Options()
         dotSni.withCString { cstr in
             sec_protocol_options_set_tls_server_name(tlsOptions.securityProtocolOptions, cstr)
@@ -144,7 +209,6 @@ final class DnsFilter {
             conn.stateUpdateHandler = nil          // Retain-Cycle brechen (conn ↔ finish)
             conn.cancel()                          // Verbindung in JEDEM Pfad schließen (idempotent)
             self?.untrack(conn)
-            self?.semaphore.signal()
             completion(result)
         }
 
