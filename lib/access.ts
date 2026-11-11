@@ -47,7 +47,17 @@ export type AccessState = {
    5. Session-Limit      → Sitzung abgelaufen (unlock-bar, außer im Cooldown)
    6. Tagesration        → aufgebraucht (unlock-bar, außer im Cooldown)
 */
-const SAFE_ENTRY: LimitEntry = { limitSeconds: 0, usedSeconds: 0, day: "", unlockedUntilMs: 0 };
+const SAFE_ENTRY: LimitEntry = {
+  limitSeconds: 0,
+  usedSeconds: 0,
+  day: "",
+  unlockedUntilMs: 0,
+  weekLimitSeconds: 0,
+  weekUsedSeconds: 0,
+  weekStart: "",
+  pendingLimitSeconds: 0,
+  pendingEffectiveAt: 0,
+};
 const SAFE_QUIET: QuietHours = { enabled: false, startMin: 0, endMin: 0 };
 const SAFE_POSTING: PostingQuota = { timesPerDay: 0, durationMin: 0 };
 

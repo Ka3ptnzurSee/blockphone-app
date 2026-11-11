@@ -63,7 +63,13 @@ export default function Shield() {
       } else {
         await enableDnsBlocking(ALL_PLATFORMS);
       }
-      const s = await dnsBlockingStatus();
+      // Der Tunnel braucht einen Moment (iOS-Dialog + Verbindungsaufbau) →
+      // ein paar Mal nachfassen, statt sofort "INAKTIV" anzuzeigen.
+      let s = await dnsBlockingStatus();
+      for (let i = 0; i < 8 && !s.connected; i++) {
+        await new Promise((r) => setTimeout(r, 750));
+        s = await dnsBlockingStatus();
+      }
       setConnected(s.connected);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

@@ -11,6 +11,15 @@ import {
   rolloverEntry,
   normalizeEntry,
   MAX_UNLOCK_MS,
+  MAX_LIMIT_S,
+  MAX_WEEK_LIMIT_S,
+  LIMIT_CHANGE_DELAY_MS,
+  weekKeyForDay,
+  weeklyRemaining,
+  requestLimitChange,
+  cancelPendingLimit,
+  applyPendingLimit,
+  pendingRemainingMs,
   type LimitEntry,
 } from "./limits";
 
@@ -22,6 +31,11 @@ function entry(over: Partial<LimitEntry> = {}): LimitEntry {
     usedSeconds: 0,
     day: T,
     unlockedUntilMs: 0,
+    weekLimitSeconds: 0,
+    weekUsedSeconds: 0,
+    weekStart: "2026-10-19", // Montag der Woche von T
+    pendingLimitSeconds: 0,
+    pendingEffectiveAt: 0,
     ...over,
   };
 }
@@ -74,7 +88,17 @@ test("formatRation: lesbare Ration", () => {
 
 test("freshEntry: heute, 0 verbraucht, keine Freischaltung", () => {
   const e = freshEntry("instagram", T);
-  assert.deepEqual(e, { limitSeconds: 1800, usedSeconds: 0, day: T, unlockedUntilMs: 0 });
+  assert.deepEqual(e, {
+    limitSeconds: 1800,
+    usedSeconds: 0,
+    day: T,
+    unlockedUntilMs: 0,
+    weekLimitSeconds: 0,
+    weekUsedSeconds: 0,
+    weekStart: "2026-10-19",
+    pendingLimitSeconds: 0,
+    pendingEffectiveAt: 0,
+  });
 });
 
 test("rolloverEntry: Tageswechsel setzt Verbrauch + Freischaltung zurück", () => {
@@ -108,5 +132,101 @@ test("normalizeEntry: clamt negative + Riesenwerte (Bypass-Schutz)", () => {
 test("normalizeEntry: akzeptiert gültigen Eintrag unverändert", () => {
   const now = 1_000_000;
   const e = normalizeEntry({ limitSeconds: 1800, usedSeconds: 42, day: T, unlockedUntilMs: now + 60_000 }, now)!;
-  assert.deepEqual(e, { limitSeconds: 1800, usedSeconds: 42, day: T, unlockedUntilMs: now + 60_000 });
+  assert.deepEqual(e, {
+    limitSeconds: 1800,
+    usedSeconds: 42,
+    day: T,
+    unlockedUntilMs: now + 60_000,
+    weekLimitSeconds: 0,
+    weekUsedSeconds: 0,
+    weekStart: "2026-10-19",
+    pendingLimitSeconds: 0,
+    pendingEffectiveAt: 0,
+  });
+});
+
+// ── Woche ────────────────────────────────────────────────────────────────────
+
+test("weekKeyForDay: Montag der Woche, auch über Monats-/Jahresgrenzen", () => {
+  assert.equal(weekKeyForDay("2026-10-25"), "2026-10-19"); // Sonntag → Montag 19.
+  assert.equal(weekKeyForDay("2026-10-19"), "2026-10-19"); // Montag bleibt Montag
+  assert.equal(weekKeyForDay("2026-01-01"), "2025-12-29"); // Jahreswechsel
+  assert.equal(weekKeyForDay("kaputt"), "");
+});
+
+test("weeklyRemaining: ohne Wochenlimit unbegrenzt, sonst Rest", () => {
+  assert.equal(weeklyRemaining(entry()), Infinity);
+  assert.equal(weeklyRemaining(entry({ weekLimitSeconds: 3600, weekUsedSeconds: 600 })), 3000);
+  assert.equal(weeklyRemaining(entry({ weekLimitSeconds: 3600, weekUsedSeconds: 5000 })), 0);
+});
+
+test("isLocked: Wochenbudget sperrt auch bei Tagesrest", () => {
+  const now = 1_000_000;
+  const e = entry({ usedSeconds: 0, weekLimitSeconds: 3600, weekUsedSeconds: 3600 });
+  assert.equal(isLocked(e, now), true);
+  // Freischaltung hebt auch die Wochensperre auf
+  assert.equal(isLocked({ ...e, unlockedUntilMs: now + 60_000 }, now), false);
+});
+
+test("rolloverEntry: Wochenwechsel setzt weekUsedSeconds zurück", () => {
+  const e = entry({ weekLimitSeconds: 3600, weekUsedSeconds: 1800 });
+  const nextWeek = rolloverEntry(e, "2026-10-27"); // Woche ab 26.10.
+  assert.equal(nextWeek.weekUsedSeconds, 0);
+  assert.equal(nextWeek.weekStart, "2026-10-26");
+  // gleiche Woche → Verbrauch bleibt
+  const sameWeek = rolloverEntry(e, "2026-10-21");
+  assert.equal(sameWeek.weekUsedSeconds, 1800);
+});
+
+// ── 2-Tage-Wartezeit ─────────────────────────────────────────────────────────
+
+test("requestLimitChange: setzt Ziel + 48h, ändert das aktive Limit NICHT", () => {
+  const now = 1_000_000;
+  const e = requestLimitChange(entry({ limitSeconds: 1800 }), 3600, now);
+  assert.equal(e.limitSeconds, 1800); // noch alt
+  assert.equal(e.pendingLimitSeconds, 3600);
+  assert.equal(e.pendingEffectiveAt, now + LIMIT_CHANGE_DELAY_MS);
+  assert.equal(pendingRemainingMs(e, now), LIMIT_CHANGE_DELAY_MS);
+});
+
+test("requestLimitChange: gleicher Wert → kein Antrag", () => {
+  const now = 1_000_000;
+  const e = entry({ limitSeconds: 1800 });
+  assert.equal(requestLimitChange(e, 1800, now), e);
+});
+
+test("applyPendingLimit: vor Ablauf nichts, nach Ablauf aktiv", () => {
+  const now = 1_000_000;
+  const e = requestLimitChange(entry({ limitSeconds: 1800 }), 600, now);
+  assert.equal(applyPendingLimit(e, now + 1000).limitSeconds, 1800);
+  const applied = applyPendingLimit(e, now + LIMIT_CHANGE_DELAY_MS);
+  assert.equal(applied.limitSeconds, 600);
+  assert.equal(applied.pendingLimitSeconds, 0);
+  assert.equal(applied.pendingEffectiveAt, 0);
+});
+
+test("cancelPendingLimit: verwirft den Antrag, Limit bleibt", () => {
+  const now = 1_000_000;
+  const e = requestLimitChange(entry({ limitSeconds: 1800 }), 600, now);
+  const c = cancelPendingLimit(e);
+  assert.equal(c.limitSeconds, 1800);
+  assert.equal(c.pendingEffectiveAt, 0);
+  assert.equal(pendingRemainingMs(c, now), 0);
+});
+
+test("normalizeEntry: clampt Wochen- und Pending-Werte", () => {
+  const now = 1_000_000;
+  const e = normalizeEntry({
+    limitSeconds: 1800,
+    usedSeconds: 0,
+    day: T,
+    weekLimitSeconds: 999999999,
+    weekUsedSeconds: -5,
+    pendingLimitSeconds: 88888888,
+    pendingEffectiveAt: -1,
+  }, now)!;
+  assert.equal(e.weekLimitSeconds, MAX_WEEK_LIMIT_S);
+  assert.equal(e.weekUsedSeconds, 0);
+  assert.equal(e.pendingLimitSeconds, MAX_LIMIT_S);
+  assert.equal(e.pendingEffectiveAt, 0);
 });

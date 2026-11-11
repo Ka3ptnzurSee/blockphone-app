@@ -2,7 +2,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { Platform } from "./browser";
 import { todayKey } from "./streak";
-import { freshEntry, MAX_LIMIT_S, normalizeEntry, rolloverEntry, type LimitEntry } from "./limits";
+import { freshEntry, MAX_LIMIT_S, MAX_WEEK_LIMIT_S, normalizeEntry, rolloverEntry, applyPendingLimit, requestLimitChange, cancelPendingLimit, type LimitEntry } from "./limits";
 
 const KEY = "pb-limits";
 const MAX_UNLOCK_MIN = 60; // max. 60 min Freischaltung
@@ -30,11 +30,13 @@ function parseState(raw: string | null): LimitState {
   }
 }
 
-// Tageswechsel über alle Einträge anwenden (usedSeconds → 0).
+// Tageswechsel über alle Einträge anwenden (usedSeconds → 0) und fällige
+// Limit-Änderungen (2-Tage-Wartezeit) aktivieren.
 function rolloverState(state: LimitState, today: string): LimitState {
+  const now = Date.now();
   const out: LimitState = {};
   for (const [k, e] of Object.entries(state)) {
-    out[k] = rolloverEntry(e, today);
+    out[k] = applyPendingLimit(rolloverEntry(e, today), now);
   }
   return out;
 }
@@ -72,11 +74,14 @@ export function ensureLimit(platform: Platform): Promise<LimitState> {
 }
 
 // Verbrauchte Sekunden aufschlagen (Rollover passiert in loadLimits).
+// Zählt auf Tages- UND Wochenbudget.
 export function addUsage(platform: Platform, seconds: number): Promise<LimitState> {
   return withLock(async () => {
     const state = await loadLimits();
     const e = state[platform] || freshEntry(platform, todayKey());
-    e.usedSeconds += Math.max(0, Math.floor(seconds));
+    const secs = Math.max(0, Math.floor(seconds));
+    e.usedSeconds += secs;
+    e.weekUsedSeconds += secs;
     state[platform] = e;
     await save(state);
     return state;
@@ -108,12 +113,47 @@ export function relock(platform: Platform): Promise<LimitState> {
   });
 }
 
-// Tagesration ändern (Einstellung).
+// Tagesration SOFORT ändern (nur intern/Reset — die UI nutzt requestDailyLimit).
 export function setDailyLimit(platform: Platform, limitSeconds: number): Promise<LimitState> {
   return withLock(async () => {
     const state = await loadLimits();
     const e = state[platform] || freshEntry(platform, todayKey());
     e.limitSeconds = Math.min(Math.max(0, Math.floor(limitSeconds)), MAX_LIMIT_S);
+    state[platform] = e;
+    await save(state);
+    return state;
+  });
+}
+
+// Tagesration ÄNDERN mit 2-Tage-Wartezeit: wird erst nach 48 h wirksam.
+export function requestDailyLimit(platform: Platform, limitSeconds: number): Promise<LimitState> {
+  return withLock(async () => {
+    const state = await loadLimits();
+    const e = state[platform] || freshEntry(platform, todayKey());
+    state[platform] = requestLimitChange(e, limitSeconds, Date.now());
+    await save(state);
+    return state;
+  });
+}
+
+// Ausstehende Änderung verwerfen (Aufrufer muss vorher den PIN geprüft haben).
+export function cancelPendingDailyLimit(platform: Platform): Promise<LimitState> {
+  return withLock(async () => {
+    const state = await loadLimits();
+    const e = state[platform] || freshEntry(platform, todayKey());
+    state[platform] = cancelPendingLimit(e);
+    await save(state);
+    return state;
+  });
+}
+
+// Wochenbudget setzen (0 = aus). Gilt sofort — es ist eine Verschärfung oder
+// ein Budget, das erst beim Erreichen greift.
+export function setWeeklyLimit(platform: Platform, limitSeconds: number): Promise<LimitState> {
+  return withLock(async () => {
+    const state = await loadLimits();
+    const e = state[platform] || freshEntry(platform, todayKey());
+    e.weekLimitSeconds = Math.min(Math.max(0, Math.floor(limitSeconds)), MAX_WEEK_LIMIT_S);
     state[platform] = e;
     await save(state);
     return state;

@@ -31,6 +31,7 @@ import Leaderboard from "./components/Leaderboard";
 import { loadGamification, type GamificationInfo } from "./lib/gamificationStore";
 import { hasPin, loadStreak, type StreakInfo } from "./lib/streakStore";
 import { withinReInterventionWindow } from "./lib/interventionStore";
+import { markAppUnlocked, withinUnlockGrace } from "./lib/unlockGate";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Nothing-Design: monochrome Palette (keine Farbakzente, kein Gradient)
@@ -142,6 +143,12 @@ function UnlockFlow({ onUnlock }: { onUnlock: () => void }) {
   useEffect(() => {
     (async () => {
       try {
+        // Gnadenfrist: gerade eben entsperrt (z. B. App weggewischt und wieder
+        // geöffnet) → direkt rein, ohne Intervention und ohne PIN.
+        if (await withinUnlockGrace()) {
+          onUnlock();
+          return;
+        }
         const [pinned, inWindow] = await Promise.all([hasPin(), withinReInterventionWindow()]);
         // Erster Start (noch kein PIN) oder gerade entsperrt → direkt PIN.
         setStep(!pinned || inWindow ? "pin" : "intervention");
@@ -361,7 +368,14 @@ export default function App() {
   }
 
   if (!unlocked) {
-    return <UnlockFlow onUnlock={() => setUnlocked(true)} />;
+    return (
+      <UnlockFlow
+        onUnlock={() => {
+          void markAppUnlocked();
+          setUnlocked(true);
+        }}
+      />
+    );
   }
 
   // BROWSER = eigener Vollbild-Modus: Header, Tabs und Statusbar fallen weg,

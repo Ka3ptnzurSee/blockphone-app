@@ -1,8 +1,24 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { DEFAULT_FILTER_CONFIG, type FilterConfig, type Platform } from "../lib/browser";
-import { DEFAULT_LIMITS, formatRation } from "../lib/limits";
-import { loadLimits, setDailyLimit, type LimitState } from "../lib/limitStore";
+import { DEFAULT_LIMITS, formatRation, pendingRemainingMs } from "../lib/limits";
+import {
+  cancelPendingDailyLimit,
+  loadLimits,
+  requestDailyLimit,
+  setWeeklyLimit,
+  type LimitState,
+} from "../lib/limitStore";
+import { verifyPin } from "../lib/streakStore";
 import { loadFilterConfig, saveFilterConfig } from "../lib/filterStore";
 import { loadSettingsLock } from "../lib/commitmentStore";
 import { formatDurationMs, type SettingsLockInfo } from "../lib/commitment";
@@ -29,6 +45,8 @@ const PLATFORMS: { key: Platform; label: string }[] = [
 
 // Presets in Minuten (Tagesration). Off = 0 (immer gesperrt).
 const PRESETS = [0, 10, 20, 30, 60, 120];
+// Wochenbudget in Stunden (0 = kein Wochenlimit).
+const WEEK_PRESETS = [0, 1, 2, 5, 10, 20];
 
 // Welche Feed-Bestandteile je Plattform schaltbar sind (true = blockieren).
 const FILTER_KEYS: Record<Platform, { key: keyof FilterConfig; label: string }[]> = {
@@ -78,6 +96,17 @@ export default function LimitSettings() {
     recoveryLeftMs: 0,
     canRecoverNow: false,
   });
+  // PIN-Abfrage zum Verwerfen einer ausstehenden Limit-Änderung.
+  const [pinFor, setPinFor] = useState<Platform | null>(null);
+  const [pinInput, setPinInput] = useState("");
+  const [pinError, setPinError] = useState<string | null>(null);
+  // Tick für den Countdown der 2-Tage-Wartezeit.
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -99,16 +128,45 @@ export default function LimitSettings() {
     setFilterCfg(await saveFilterConfig(next));
   }
 
+  // Tagesration ändern: wird erst nach 48 h wirksam (2-Tage-Wartezeit).
   async function apply(p: Platform, minutes: number) {
     if (locked) return;
     setBusy(p);
     try {
-      setLimits(await setDailyLimit(p, minutes * 60));
+      setLimits(await requestDailyLimit(p, minutes * 60));
     } catch {
       /* ignorieren — UI bleibt auf altem Stand */
     } finally {
       setBusy(null);
     }
+  }
+
+  // Wochenbudget setzen (gilt sofort).
+  async function applyWeek(p: Platform, hours: number) {
+    if (locked) return;
+    setBusy(p);
+    try {
+      setLimits(await setWeeklyLimit(p, hours * 3600));
+    } catch {
+      /* ignorieren */
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // Ausstehende Änderung verwerfen — nur mit PIN.
+  async function confirmCancel() {
+    if (!pinFor) return;
+    const ok = await verifyPin(pinInput);
+    if (!ok) {
+      setPinError("Falscher PIN.");
+      setPinInput("");
+      return;
+    }
+    setLimits(await cancelPendingDailyLimit(pinFor));
+    setPinFor(null);
+    setPinInput("");
+    setPinError(null);
   }
 
   if (!limits) {
@@ -120,6 +178,7 @@ export default function LimitSettings() {
   }
 
   return (
+    <>
     <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
       {locked ? (
         <View style={styles.lockBanner}>
@@ -139,7 +198,12 @@ export default function LimitSettings() {
       </Text>
 
       {PLATFORMS.map(({ key, label }) => {
-        const current = limits[key]?.limitSeconds ?? DEFAULT_LIMITS[key];
+        const e = limits[key];
+        const current = e?.limitSeconds ?? DEFAULT_LIMITS[key];
+        const weekLimit = e?.weekLimitSeconds ?? 0;
+        const weekUsed = e?.weekUsedSeconds ?? 0;
+        const pendingLeft = e ? pendingRemainingMs(e, Date.now()) : 0;
+        const pending = e && e.pendingEffectiveAt > 0 ? e.pendingLimitSeconds : null;
         return (
           <View key={key} style={styles.card}>
             <View style={styles.cardHead}>
@@ -160,6 +224,53 @@ export default function LimitSettings() {
                   >
                     <Text style={[styles.chipText, active && styles.chipTextActive]}>
                       {min === 0 ? "OFF" : min + "m"}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {pending !== null ? (
+              <View style={styles.pending}>
+                <Text style={styles.pendingTitle}>
+                  ÄNDERUNG AUF {pending === 0 ? "OFF" : formatRation(pending)} ANGEFORDERT
+                </Text>
+                <Text style={styles.pendingBody}>
+                  Wird in {formatDurationMs(pendingLeft)} aktiv (2-Tage-Wartezeit).
+                </Text>
+                <Pressable
+                  onPress={() => {
+                    setPinFor(key);
+                    setPinInput("");
+                    setPinError(null);
+                  }}
+                  style={styles.pendingCancel}
+                >
+                  <Text style={styles.pendingCancelText}>MIT PIN VERWERFEN</Text>
+                </Pressable>
+              </View>
+            ) : null}
+
+            <View style={styles.weekRow}>
+              <Text style={styles.weekLabel}>WOCHE</Text>
+              <Text style={styles.weekValue}>
+                {weekLimit === 0
+                  ? "KEIN WOCHENLIMIT"
+                  : `${formatRation(Math.max(0, weekLimit - weekUsed))} übrig / ${formatRation(weekLimit)}`}
+              </Text>
+            </View>
+            <View style={styles.chips}>
+              {WEEK_PRESETS.map((h) => {
+                const active = weekLimit === h * 3600;
+                return (
+                  <Pressable
+                    key={`w${h}`}
+                    onPress={() => void applyWeek(key, h)}
+                    disabled={busy === key}
+                    style={[styles.chip, active && styles.chipActive]}
+                  >
+                    <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                      {h === 0 ? "AUS" : h + "h"}
                     </Text>
                   </Pressable>
                 );
@@ -204,6 +315,46 @@ export default function LimitSettings() {
         })}
       </View>
     </ScrollView>
+
+      {/* PIN-Abfrage: ausstehende Limit-Änderung verwerfen */}
+      <Modal visible={pinFor !== null} transparent animationType="fade" onRequestClose={() => setPinFor(null)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>PIN ZUM VERWERFEN</Text>
+            <Text style={styles.modalBody}>
+              Die angeforderte Änderung wird gelöscht. Das aktuelle Limit bleibt.
+            </Text>
+            <TextInput
+              style={styles.modalInput}
+              value={pinInput}
+              onChangeText={(t) => {
+                setPinInput(t.replace(/\D/g, "").slice(0, 4));
+                setPinError(null);
+              }}
+              keyboardType="number-pad"
+              maxLength={4}
+              secureTextEntry
+              autoFocus
+              placeholder="••••"
+              placeholderTextColor={C.text3}
+            />
+            {pinError ? <Text style={styles.modalError}>⚠ {pinError}</Text> : null}
+            <View style={styles.modalButtons}>
+              <Pressable onPress={() => setPinFor(null)} style={styles.modalBtnGhost}>
+                <Text style={styles.modalBtnGhostText}>ZURÜCK</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => void confirmCancel()}
+                disabled={pinInput.length !== 4}
+                style={[styles.modalBtn, pinInput.length !== 4 && styles.modalBtnDisabled]}
+              >
+                <Text style={styles.modalBtnText}>VERWERFEN</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 }
 
@@ -298,4 +449,75 @@ const styles = StyleSheet.create({
   },
   lockTitle: { fontFamily: "SpaceGrotesk", fontSize: 12, color: C.text, letterSpacing: 2 },
   lockBody: { fontFamily: "SpaceGrotesk", fontSize: 11, color: C.text3, lineHeight: 16 },
+  pending: {
+    borderWidth: 1,
+    borderColor: C.dot,
+    borderRadius: 10,
+    padding: 10,
+    gap: 4,
+  },
+  pendingTitle: { fontFamily: "SpaceGrotesk", fontSize: 11, color: C.text, letterSpacing: 1 },
+  pendingBody: { fontFamily: "SpaceGrotesk", fontSize: 11, color: C.text3, lineHeight: 15 },
+  pendingCancel: { alignSelf: "flex-start", marginTop: 4 },
+  pendingCancelText: {
+    fontFamily: "SpaceGrotesk",
+    fontSize: 11,
+    color: C.dot,
+    letterSpacing: 1,
+    textDecorationLine: "underline",
+  },
+  weekRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  weekLabel: { fontFamily: "SpaceGrotesk", fontSize: 11, color: C.text3, letterSpacing: 2 },
+  weekValue: { fontFamily: "SpaceGrotesk", fontSize: 11, color: C.text2, letterSpacing: 1 },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.85)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 340,
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 16,
+    padding: 18,
+    gap: 10,
+  },
+  modalTitle: { fontFamily: "Ndot57", fontSize: 15, color: C.text, letterSpacing: 2 },
+  modalBody: { fontFamily: "SpaceGrotesk", fontSize: 12, color: C.text3, lineHeight: 17 },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    color: C.text,
+    fontFamily: "SpaceGrotesk",
+    fontSize: 18,
+    letterSpacing: 8,
+    textAlign: "center",
+  },
+  modalError: { fontFamily: "SpaceGrotesk", fontSize: 11, color: "#ff5c6a" },
+  modalButtons: { flexDirection: "row", gap: 10, marginTop: 4 },
+  modalBtn: {
+    flex: 1,
+    backgroundColor: C.dot,
+    borderRadius: 999,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  modalBtnDisabled: { backgroundColor: C.border },
+  modalBtnText: { fontFamily: "SpaceGrotesk", fontSize: 12, color: C.bg, letterSpacing: 2, fontWeight: "700" },
+  modalBtnGhost: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 999,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  modalBtnGhostText: { fontFamily: "SpaceGrotesk", fontSize: 12, color: C.text2, letterSpacing: 2 },
 });
