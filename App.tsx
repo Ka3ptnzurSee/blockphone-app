@@ -11,6 +11,7 @@ import {
   View,
 } from "react-native";
 import { useFonts } from "expo-font";
+import Constants from "expo-constants";
 import LottieView from "lottie-react-native";
 import { browserExitTab } from "./lib/browser";
 import Browser from "./components/Browser";
@@ -320,6 +321,11 @@ export default function App() {
           ) : (
             <ScheduleSettings />
           )}
+          {/* Damit man am Gerät sofort sieht, welcher Build läuft. */}
+          <Text style={styles.versionFoot}>
+            BUILD {Constants.expoConfig?.ios?.buildNumber ?? "?"} · V
+            {Constants.expoConfig?.version ?? "?"}
+          </Text>
         </View>
       )}
 
@@ -507,6 +513,14 @@ const styles = StyleSheet.create({
     color: C.text3,
     letterSpacing: 2,
     marginTop: 4,
+  },
+  versionFoot: {
+    fontFamily: "SpaceGrotesk",
+    fontSize: 10,
+    color: C.text3,
+    letterSpacing: 2,
+    textAlign: "center",
+    paddingVertical: 14,
   },
   guidesWrap: { flex: 1, backgroundColor: C.bg },
   streak: {
