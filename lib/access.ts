@@ -55,8 +55,7 @@ const SAFE_ENTRY: LimitEntry = {
   weekLimitSeconds: 0,
   weekUsedSeconds: 0,
   weekStart: "",
-  pendingLimitSeconds: 0,
-  pendingEffectiveAt: 0,
+  pending: null,
 };
 const SAFE_QUIET: QuietHours = { enabled: false, startMin: 0, endMin: 0 };
 const SAFE_POSTING: PostingQuota = { timesPerDay: 0, durationMin: 0 };

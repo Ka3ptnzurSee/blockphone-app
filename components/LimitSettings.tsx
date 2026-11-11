@@ -12,10 +12,10 @@ import {
 import { DEFAULT_FILTER_CONFIG, type FilterConfig, type Platform } from "../lib/browser";
 import { DEFAULT_LIMITS, formatRation, pendingRemainingMs } from "../lib/limits";
 import {
-  cancelPendingDailyLimit,
+  cancelPendingLimit,
   loadLimits,
   requestDailyLimit,
-  setWeeklyLimit,
+  requestWeeklyLimit,
   type LimitState,
 } from "../lib/limitStore";
 import { verifyPin } from "../lib/streakStore";
@@ -141,12 +141,12 @@ export default function LimitSettings() {
     }
   }
 
-  // Wochenbudget setzen (gilt sofort).
+  // Wochenbudget ändern: gleicher 48h-Mechanismus wie die Tagesration.
   async function applyWeek(p: Platform, hours: number) {
     if (locked) return;
     setBusy(p);
     try {
-      setLimits(await setWeeklyLimit(p, hours * 3600));
+      setLimits(await requestWeeklyLimit(p, hours * 3600));
     } catch {
       /* ignorieren */
     } finally {
@@ -157,16 +157,20 @@ export default function LimitSettings() {
   // Ausstehende Änderung verwerfen — nur mit PIN.
   async function confirmCancel() {
     if (!pinFor) return;
-    const ok = await verifyPin(pinInput);
-    if (!ok) {
-      setPinError("Falscher PIN.");
+    try {
+      const ok = await verifyPin(pinInput);
+      if (!ok) {
+        setPinError("Falscher PIN.");
+        setPinInput("");
+        return;
+      }
+      setLimits(await cancelPendingLimit(pinFor));
+      setPinFor(null);
       setPinInput("");
-      return;
+      setPinError(null);
+    } catch (e) {
+      setPinError(e instanceof Error ? e.message : "Verwerfen fehlgeschlagen.");
     }
-    setLimits(await cancelPendingDailyLimit(pinFor));
-    setPinFor(null);
-    setPinInput("");
-    setPinError(null);
   }
 
   if (!limits) {
@@ -203,7 +207,7 @@ export default function LimitSettings() {
         const weekLimit = e?.weekLimitSeconds ?? 0;
         const weekUsed = e?.weekUsedSeconds ?? 0;
         const pendingLeft = e ? pendingRemainingMs(e, Date.now()) : 0;
-        const pending = e && e.pendingEffectiveAt > 0 ? e.pendingLimitSeconds : null;
+        const pending = e?.pending ?? null;
         return (
           <View key={key} style={styles.card}>
             <View style={styles.cardHead}>
@@ -219,7 +223,7 @@ export default function LimitSettings() {
                   <Pressable
                     key={min}
                     onPress={() => void apply(key, min)}
-                    disabled={busy === key}
+                    disabled={busy === key || pending !== null}
                     style={[styles.chip, active && styles.chipActive]}
                   >
                     <Text style={[styles.chipText, active && styles.chipTextActive]}>
@@ -233,7 +237,17 @@ export default function LimitSettings() {
             {pending !== null ? (
               <View style={styles.pending}>
                 <Text style={styles.pendingTitle}>
-                  ÄNDERUNG AUF {pending === 0 ? "OFF" : formatRation(pending)} ANGEFORDERT
+                  {[
+                    pending.dailySeconds !== null
+                      ? `TAG: ${pending.dailySeconds === 0 ? "OFF" : formatRation(pending.dailySeconds)}`
+                      : null,
+                    pending.weekSeconds !== null
+                      ? `WOCHE: ${pending.weekSeconds === 0 ? "AUS" : formatRation(pending.weekSeconds)}`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}{" "}
+                  ANGEFORDERT
                 </Text>
                 <Text style={styles.pendingBody}>
                   Wird in {formatDurationMs(pendingLeft)} aktiv (2-Tage-Wartezeit).
@@ -266,7 +280,7 @@ export default function LimitSettings() {
                   <Pressable
                     key={`w${h}`}
                     onPress={() => void applyWeek(key, h)}
-                    disabled={busy === key}
+                    disabled={busy === key || pending !== null}
                     style={[styles.chip, active && styles.chipActive]}
                   >
                     <Text style={[styles.chipText, active && styles.chipTextActive]}>

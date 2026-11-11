@@ -137,7 +137,10 @@ function Glyph({ size = 230 }: { size?: number }) {
 // Unlock-Flow: Intervention (one sec-Muster) → PIN.
 // Re-Intervention-Fenster: kurz zuvor entsperrt → Intervention überspringen.
 // ─────────────────────────────────────────────────────────────────────────────
-function UnlockFlow({ onUnlock }: { onUnlock: () => void }) {
+// `fresh` = true nur nach echter PIN-Eingabe. Nur dann wird die Gnadenfrist
+// neu gestartet — sonst würde jedes Öffnen innerhalb der Frist sie verlängern
+// (Gleitfenster: App alle 14 min auf = nie wieder PIN).
+function UnlockFlow({ onUnlock }: { onUnlock: (fresh: boolean) => void }) {
   const [step, setStep] = useState<"loading" | "intervention" | "pin">("loading");
 
   useEffect(() => {
@@ -146,7 +149,7 @@ function UnlockFlow({ onUnlock }: { onUnlock: () => void }) {
         // Gnadenfrist: gerade eben entsperrt (z. B. App weggewischt und wieder
         // geöffnet) → direkt rein, ohne Intervention und ohne PIN.
         if (await withinUnlockGrace()) {
-          onUnlock();
+          onUnlock(false);
           return;
         }
         const [pinned, inWindow] = await Promise.all([hasPin(), withinReInterventionWindow()]);
@@ -171,7 +174,7 @@ function UnlockFlow({ onUnlock }: { onUnlock: () => void }) {
   if (step === "intervention") {
     return <InterventionGate onDone={() => setStep("pin")} />;
   }
-  return <PinGate onUnlock={onUnlock} />;
+  return <PinGate onUnlock={() => onUnlock(true)} />;
 }
 
 // In-App-Kleinbild: kleines, verschiebbares Browser-Fenster über den Tabs.
@@ -370,8 +373,8 @@ export default function App() {
   if (!unlocked) {
     return (
       <UnlockFlow
-        onUnlock={() => {
-          void markAppUnlocked();
+        onUnlock={(fresh) => {
+          if (fresh) void markAppUnlocked();
           setUnlocked(true);
         }}
       />

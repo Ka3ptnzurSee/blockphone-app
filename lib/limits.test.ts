@@ -34,8 +34,7 @@ function entry(over: Partial<LimitEntry> = {}): LimitEntry {
     weekLimitSeconds: 0,
     weekUsedSeconds: 0,
     weekStart: "2026-10-19", // Montag der Woche von T
-    pendingLimitSeconds: 0,
-    pendingEffectiveAt: 0,
+    pending: null,
     ...over,
   };
 }
@@ -96,8 +95,7 @@ test("freshEntry: heute, 0 verbraucht, keine Freischaltung", () => {
     weekLimitSeconds: 0,
     weekUsedSeconds: 0,
     weekStart: "2026-10-19",
-    pendingLimitSeconds: 0,
-    pendingEffectiveAt: 0,
+    pending: null,
   });
 });
 
@@ -140,8 +138,7 @@ test("normalizeEntry: akzeptiert gültigen Eintrag unverändert", () => {
     weekLimitSeconds: 0,
     weekUsedSeconds: 0,
     weekStart: "2026-10-19",
-    pendingLimitSeconds: 0,
-    pendingEffectiveAt: 0,
+    pending: null,
   });
 });
 
@@ -182,35 +179,56 @@ test("rolloverEntry: Wochenwechsel setzt weekUsedSeconds zurück", () => {
 
 test("requestLimitChange: setzt Ziel + 48h, ändert das aktive Limit NICHT", () => {
   const now = 1_000_000;
-  const e = requestLimitChange(entry({ limitSeconds: 1800 }), 3600, now);
+  const e = requestLimitChange(entry({ limitSeconds: 1800 }), { dailySeconds: 3600 }, now);
   assert.equal(e.limitSeconds, 1800); // noch alt
-  assert.equal(e.pendingLimitSeconds, 3600);
-  assert.equal(e.pendingEffectiveAt, now + LIMIT_CHANGE_DELAY_MS);
+  assert.deepEqual(e.pending, {
+    dailySeconds: 3600,
+    weekSeconds: null,
+    effectiveAt: now + LIMIT_CHANGE_DELAY_MS,
+  });
   assert.equal(pendingRemainingMs(e, now), LIMIT_CHANGE_DELAY_MS);
 });
 
 test("requestLimitChange: gleicher Wert → kein Antrag", () => {
   const now = 1_000_000;
   const e = entry({ limitSeconds: 1800 });
-  assert.equal(requestLimitChange(e, 1800, now), e);
+  assert.equal(requestLimitChange(e, { dailySeconds: 1800 }, now), e);
+});
+
+test("requestLimitChange: offener Antrag wird NICHT überschrieben (Bypass-Schutz)", () => {
+  const now = 1_000_000;
+  const strict = requestLimitChange(entry({ limitSeconds: 1800 }), { dailySeconds: 600 }, now);
+  // Laxerer Folgeantrag darf die Verschärfung nicht verdrängen.
+  const lax = requestLimitChange(strict, { dailySeconds: 86399 }, now + 1000);
+  assert.equal(lax, strict);
+  assert.equal(lax.pending?.dailySeconds, 600);
+});
+
+test("requestLimitChange: Wochenbudget über denselben Antrag", () => {
+  const now = 1_000_000;
+  const e = requestLimitChange(entry(), { weekSeconds: 3600 }, now);
+  assert.equal(e.weekLimitSeconds, 0); // noch alt
+  assert.equal(e.pending?.weekSeconds, 3600);
+  const applied = applyPendingLimit(e, now + LIMIT_CHANGE_DELAY_MS);
+  assert.equal(applied.weekLimitSeconds, 3600);
+  assert.equal(applied.pending, null);
 });
 
 test("applyPendingLimit: vor Ablauf nichts, nach Ablauf aktiv", () => {
   const now = 1_000_000;
-  const e = requestLimitChange(entry({ limitSeconds: 1800 }), 600, now);
+  const e = requestLimitChange(entry({ limitSeconds: 1800 }), { dailySeconds: 600 }, now);
   assert.equal(applyPendingLimit(e, now + 1000).limitSeconds, 1800);
   const applied = applyPendingLimit(e, now + LIMIT_CHANGE_DELAY_MS);
   assert.equal(applied.limitSeconds, 600);
-  assert.equal(applied.pendingLimitSeconds, 0);
-  assert.equal(applied.pendingEffectiveAt, 0);
+  assert.equal(applied.pending, null);
 });
 
 test("cancelPendingLimit: verwirft den Antrag, Limit bleibt", () => {
   const now = 1_000_000;
-  const e = requestLimitChange(entry({ limitSeconds: 1800 }), 600, now);
+  const e = requestLimitChange(entry({ limitSeconds: 1800 }), { dailySeconds: 600 }, now);
   const c = cancelPendingLimit(e);
   assert.equal(c.limitSeconds, 1800);
-  assert.equal(c.pendingEffectiveAt, 0);
+  assert.equal(c.pending, null);
   assert.equal(pendingRemainingMs(c, now), 0);
 });
 
@@ -222,11 +240,11 @@ test("normalizeEntry: clampt Wochen- und Pending-Werte", () => {
     day: T,
     weekLimitSeconds: 999999999,
     weekUsedSeconds: -5,
-    pendingLimitSeconds: 88888888,
-    pendingEffectiveAt: -1,
+    pending: { dailySeconds: 88888888, weekSeconds: null, effectiveAt: now + 999 * 86400_000 },
   }, now)!;
   assert.equal(e.weekLimitSeconds, MAX_WEEK_LIMIT_S);
   assert.equal(e.weekUsedSeconds, 0);
-  assert.equal(e.pendingLimitSeconds, MAX_LIMIT_S);
-  assert.equal(e.pendingEffectiveAt, 0);
+  assert.equal(e.pending?.dailySeconds, MAX_LIMIT_S);
+  // Manipulierter Zeitstempel darf die 48 h nicht verlängern.
+  assert.equal(e.pending?.effectiveAt, now + LIMIT_CHANGE_DELAY_MS);
 });

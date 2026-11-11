@@ -15,9 +15,15 @@ export type LimitEntry = {
   weekUsedSeconds: number;
   weekStart: string; // "YYYY-MM-DD" des Montags der laufenden Woche
 
-  // ── 2-Tage-Wartezeit für Änderungen der Tagesration ────────────────────────
-  pendingLimitSeconds: number; // 0 = keine Änderung ausstehend
-  pendingEffectiveAt: number; // epoch ms, ab wann pendingLimitSeconds gilt
+  // ── 2-Tage-Wartezeit für Limit-Änderungen ──────────────────────────────────
+  // Ein offener Antrag ist unteilbar: entweder ganz oder gar nicht.
+  pending: PendingLimit | null;
+};
+
+export type PendingLimit = {
+  dailySeconds: number | null; // null = Tagesration bleibt
+  weekSeconds: number | null; // null = Wochenbudget bleibt
+  effectiveAt: number; // epoch ms, ab wann der Antrag gilt
 };
 
 export const MAX_LIMIT_S = 24 * 3600; // Tagesration-Deckel (24 h)
@@ -99,39 +105,56 @@ export function weekKeyForDay(day: string): string {
 
 // ── 2-Tage-Wartezeit ─────────────────────────────────────────────────────────
 
-// Änderung der Tagesration beantragen: gilt erst nach LIMIT_CHANGE_DELAY_MS.
-export function requestLimitChange(e: LimitEntry, seconds: number, now: number): LimitEntry {
-  const target = Math.min(Math.max(0, Math.floor(seconds)), MAX_LIMIT_S);
-  // Kein Antrag nötig, wenn der Wert schon gilt.
-  if (target === e.limitSeconds && e.pendingLimitSeconds === 0) return e;
+// Limit-Änderung beantragen: gilt erst nach LIMIT_CHANGE_DELAY_MS.
+// Ein offener Antrag wird NICHT überschrieben — sonst könnte man eine
+// Verschärfung durch einen laxeren Folgeantrag aushebeln. Erst
+// cancelPendingLimit (PIN) gibt den Slot wieder frei.
+export function requestLimitChange(
+  e: LimitEntry,
+  change: { dailySeconds?: number; weekSeconds?: number },
+  now: number,
+): LimitEntry {
+  if (e.pending) return e;
+  const daily =
+    change.dailySeconds === undefined
+      ? null
+      : Math.min(Math.max(0, Math.floor(change.dailySeconds)), MAX_LIMIT_S);
+  const week =
+    change.weekSeconds === undefined
+      ? null
+      : Math.min(Math.max(0, Math.floor(change.weekSeconds)), MAX_WEEK_LIMIT_S);
+  if (daily === null && week === null) return e;
+  // Kein Antrag nötig, wenn beide Zielwerte schon gelten.
+  const dailySame = daily === null || daily === e.limitSeconds;
+  const weekSame = week === null || week === e.weekLimitSeconds;
+  if (dailySame && weekSame) return e;
   return {
     ...e,
-    pendingLimitSeconds: target,
-    pendingEffectiveAt: now + LIMIT_CHANGE_DELAY_MS,
+    pending: { dailySeconds: daily, weekSeconds: week, effectiveAt: now + LIMIT_CHANGE_DELAY_MS },
   };
 }
 
-// Ausstehende Änderung verwerfen (nur nach PIN-Bestätigung aufrufen).
+// Ausstehenden Antrag verwerfen (nur nach PIN-Bestätigung aufrufen).
 export function cancelPendingLimit(e: LimitEntry): LimitEntry {
-  return { ...e, pendingLimitSeconds: 0, pendingEffectiveAt: 0 };
+  return e.pending ? { ...e, pending: null } : e;
 }
 
-// Fällige Änderung anwenden. Idempotent; ohne Antrag unverändert.
+// Fälligen Antrag anwenden. Idempotent; ohne Antrag unverändert.
 export function applyPendingLimit(e: LimitEntry, now: number): LimitEntry {
-  if (!(e.pendingEffectiveAt > 0) || e.pendingLimitSeconds < 0) return e;
-  if (now < e.pendingEffectiveAt) return e;
+  if (!e.pending) return e;
+  if (now < e.pending.effectiveAt) return e;
   return {
     ...e,
-    limitSeconds: e.pendingLimitSeconds,
-    pendingLimitSeconds: 0,
-    pendingEffectiveAt: 0,
+    limitSeconds: e.pending.dailySeconds ?? e.limitSeconds,
+    weekLimitSeconds: e.pending.weekSeconds ?? e.weekLimitSeconds,
+    pending: null,
   };
 }
 
 // Restzeit bis zur Aktivierung (0 = nichts ausstehend).
 export function pendingRemainingMs(e: LimitEntry, now: number): number {
-  if (!(e.pendingEffectiveAt > 0)) return 0;
-  return Math.max(0, e.pendingEffectiveAt - now);
+  if (!e.pending) return 0;
+  return Math.max(0, e.pending.effectiveAt - now);
 }
 
 // ── Konstruktion / Rollover / Validierung ────────────────────────────────────
@@ -146,8 +169,7 @@ export function freshEntry(platform: Platform, today: string): LimitEntry {
     weekLimitSeconds: 0,
     weekUsedSeconds: 0,
     weekStart: weekKeyForDay(today),
-    pendingLimitSeconds: 0,
-    pendingEffectiveAt: 0,
+    pending: null,
   };
 }
 
@@ -164,6 +186,24 @@ export function rolloverEntry(e: LimitEntry, today: string): LimitEntry {
     unlockedUntilMs: e.day === today ? e.unlockedUntilMs : 0,
     weekUsedSeconds: weekChanged ? 0 : e.weekUsedSeconds,
     weekStart: weekChanged ? wk : e.weekStart,
+  };
+}
+
+// Offenen Antrag validieren. effectiveAt wird auf die maximale Wartezeit
+// geklemmt — ein manipulierter Zeitstempel darf die 48 h nicht verkürzen.
+function normalizePending(raw: unknown, now: number): PendingLimit | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const r = raw as Record<string, unknown>;
+  const num = (x: unknown): number | null =>
+    typeof x === "number" && Number.isFinite(x) ? x : null;
+  const at = num(r.effectiveAt);
+  const daily = num(r.dailySeconds);
+  const week = num(r.weekSeconds);
+  if (at === null || at <= 0 || (daily === null && week === null)) return null;
+  return {
+    dailySeconds: daily === null ? null : Math.min(Math.max(0, Math.floor(daily)), MAX_LIMIT_S),
+    weekSeconds: week === null ? null : Math.min(Math.max(0, Math.floor(week)), MAX_WEEK_LIMIT_S),
+    effectiveAt: Math.min(at, now + LIMIT_CHANGE_DELAY_MS),
   };
 }
 
@@ -186,8 +226,9 @@ export function normalizeEntry(e: unknown, now = Date.now()): LimitEntry | null 
     typeof r.weekStart === "string" && /^\d{4}-\d{2}-\d{2}$/.test(r.weekStart)
       ? r.weekStart
       : weekKeyForDay(day);
-  const pendingLimit = num(r.pendingLimitSeconds) ?? 0;
-  const pendingAt = num(r.pendingEffectiveAt) ?? 0;
+  // Manipulationsschutz: weekStart ist deterministisch aus `day` ableitbar.
+  // Ein gefälschter weekStart würde sonst den Wochenverbrauch zurücksetzen.
+  const weekStartFixed = day ? weekKeyForDay(day) : weekStart;
   return {
     limitSeconds: Math.min(Math.max(0, Math.floor(limit)), MAX_LIMIT_S),
     usedSeconds: Math.max(0, Math.floor(used)),
@@ -195,8 +236,7 @@ export function normalizeEntry(e: unknown, now = Date.now()): LimitEntry | null 
     unlockedUntilMs: Math.min(Math.max(unlocked ?? 0, 0), now + MAX_UNLOCK_MS),
     weekLimitSeconds: Math.min(Math.max(0, Math.floor(weekLimit)), MAX_WEEK_LIMIT_S),
     weekUsedSeconds: Math.max(0, Math.floor(weekUsed)),
-    weekStart,
-    pendingLimitSeconds: Math.min(Math.max(0, Math.floor(pendingLimit)), MAX_LIMIT_S),
-    pendingEffectiveAt: Math.max(0, pendingAt),
+    weekStart: weekStartFixed,
+    pending: normalizePending(r.pending, now),
   };
 }

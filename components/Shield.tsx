@@ -48,8 +48,14 @@ export default function Shield() {
     }
   }
 
+  // Poll-Schleife darf nach dem Unmount nichts mehr setzen.
+  const mountedRef = useRef(true);
   useEffect(() => {
+    mountedRef.current = true;
     void refresh();
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   async function toggle() {
@@ -66,17 +72,18 @@ export default function Shield() {
       // Der Tunnel braucht einen Moment (iOS-Dialog + Verbindungsaufbau) →
       // ein paar Mal nachfassen, statt sofort "INAKTIV" anzuzeigen.
       let s = await dnsBlockingStatus();
-      for (let i = 0; i < 8 && !s.connected; i++) {
+      for (let i = 0; i < 8 && !s.connected && mountedRef.current; i++) {
         await new Promise((r) => setTimeout(r, 750));
+        if (!mountedRef.current) return;
         s = await dnsBlockingStatus();
       }
-      setConnected(s.connected);
+      if (mountedRef.current) setConnected(s.connected);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (mountedRef.current) setError(e instanceof Error ? e.message : String(e));
       await refresh();
     } finally {
       busyRef.current = false;
-      setBusy(false);
+      if (mountedRef.current) setBusy(false);
     }
   }
 
