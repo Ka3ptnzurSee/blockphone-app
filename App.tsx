@@ -5,17 +5,13 @@ import {
   PanResponder,
   Pressable,
   SafeAreaView,
-  ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   useWindowDimensions,
   View,
 } from "react-native";
 import { useFonts } from "expo-font";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import LottieView from "lottie-react-native";
-import { isAllowedUrl } from "./lib/blocker";
 import { browserExitTab } from "./lib/browser";
 import Browser from "./components/Browser";
 import PinGate from "./components/PinGate";
@@ -24,10 +20,6 @@ import Shield from "./components/Shield";
 import CommitmentSettings from "./components/CommitmentSettings";
 import InterventionGate from "./components/InterventionGate";
 import ScheduleSettings from "./components/ScheduleSettings";
-import HandoffGuide from "./components/HandoffGuide";
-import ScreenTimeLockIn from "./components/ScreenTimeLockIn";
-import Paywall from "./components/Paywall";
-import Leaderboard from "./components/Leaderboard";
 import { loadGamification, type GamificationInfo } from "./lib/gamificationStore";
 import { hasPin, loadStreak, type StreakInfo } from "./lib/streakStore";
 import { withinReInterventionWindow } from "./lib/interventionStore";
@@ -61,63 +53,11 @@ const DEFAULT_CFG: Cfg = {
 };
 
 // fetch mit Timeout + Redirect-Schutz (Credentials nie an Redirect-Ziele weiterreichen)
-async function fetchWithTimeout(url: string, init: RequestInit, ms = 6000): Promise<Response> {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), ms);
-  try {
-    return await fetch(url, { ...init, redirect: "error", signal: ctrl.signal });
-  } finally {
-    clearTimeout(t);
-  }
-}
-
 const DAYS = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"];
 const MONTHS = [
   "Januar", "Februar", "März", "April", "Mai", "Juni",
   "Juli", "August", "September", "Oktober", "November", "Dezember",
 ];
-
-// ─────────────────────────────────────────────────────────────────────────────
-// NetSitter-Client (keine Auth — API auf dem Raspi, Port 3199)
-// ─────────────────────────────────────────────────────────────────────────────
-type Device = {
-  id: string;
-  ip: string;
-  mac: string;
-  name: string;
-  blocked: boolean;
-  reason: string;
-  schedule_blocked: boolean;
-  schedule_reason: string;
-};
-
-async function getStatus(cfg: Cfg): Promise<Device[]> {
-  const res = await fetchWithTimeout(`${cfg.url.replace(/\/+$/, "")}/api/status`, {
-    headers: { Accept: "application/json" },
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = await res.json();
-  const raw = (data.devices || {}) as Record<string, any>;
-  return Object.entries(raw).map(([id, d]) => ({
-    id,
-    ip: d.ip || "",
-    mac: d.mac || "",
-    name: d.name || id,
-    blocked: !!d.blocked,
-    reason: d.reason || "",
-    schedule_blocked: !!d.schedule_blocked,
-    schedule_reason: d.schedule_reason || "",
-  }));
-}
-
-async function setBlock(cfg: Cfg, id: string, on: boolean): Promise<void> {
-  const res = await fetchWithTimeout(`${cfg.url.replace(/\/+$/, "")}/api/${on ? "block" : "unblock"}`, {
-    method: "POST",
-    headers: { Accept: "application/json", "Content-Type": "application/json" },
-    body: JSON.stringify({ device: id }),
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Glyph-Motiv — die echte Nothing-Dot-Matrix-Animation (Lottie, aus Nothing X)
@@ -187,7 +127,7 @@ const MINI_MIN_Y = 26 + MINI_PAD;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), Math.max(lo, hi));
 
-type TabKey = "glyph" | "devices" | "server" | "browser" | "limits" | "shield" | "mehr";
+type TabKey = "glyph" | "browser" | "shield" | "mehr";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // App
@@ -201,7 +141,7 @@ export default function App() {
   });
 
   const [tab, setTab] = useState<TabKey>("glyph");
-  const [mehrSub, setMehrSub] = useState<"commitment" | "schedule" | "guides" | "lifetime" | "friends">("commitment");
+  const [mehrSub, setMehrSub] = useState<"limits" | "commitment" | "schedule">("limits");
   const [now, setNow] = useState(() => new Date());
   const [unlocked, setUnlocked] = useState(false);
   // Browser-Layer bleibt nach dem ersten Öffnen gemountet (PiP/Video läuft weiter).
@@ -264,32 +204,6 @@ export default function App() {
     }),
   ).current;
 
-  // Server-Config (aus AsyncStorage, Default = Raspi-AdGuard im Heimnetz)
-  const [cfg, setCfg] = useState<Cfg>(DEFAULT_CFG);
-  const [cfgDraft, setCfgDraft] = useState<Cfg>(cfg);
-  const [serverOpen, setServerOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-
-  // Geräte-Status (NetSitter /api/status)
-  const [devices, setDevices] = useState<Device[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busyIp, setBusyIp] = useState<string | null>(null);
-  const busyRef = useRef(false);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const url = await AsyncStorage.getItem(STORAGE.url);
-        const next: Cfg = { url: url && isAllowedUrl(url) ? url : DEFAULT_CFG.url };
-        setCfg(next);
-        setCfgDraft(next);
-      } catch {
-        /* ignorieren */
-      }
-    })();
-  }, []);
-
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
@@ -301,65 +215,6 @@ export default function App() {
       loadGamification().then(setGam).catch(() => setGam(null));
     }
   }, [unlocked]);
-
-  const refreshBusyRef = useRef(false);
-
-  async function refresh() {
-    if (refreshBusyRef.current) return; // In-Flight-Guard: kein paralleler Poll
-    refreshBusyRef.current = true;
-    setError(null);
-    try {
-      setDevices(await getStatus(cfg));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setDevices(null);
-    } finally {
-      refreshBusyRef.current = false;
-    }
-  }
-
-  useEffect(() => {
-    if (tab === "devices") {
-      refresh();
-      const t = setInterval(refresh, 4000);
-      return () => clearInterval(t);
-    }
-  }, [tab, cfg]);
-
-  async function toggleDevice(id: string, on: boolean) {
-    if (busyRef.current) return; // synchroner Mutex: ein Toggle app-weit gleichzeitig
-    busyRef.current = true;
-    setBusyIp(id);
-    setError(null);
-    try {
-      await setBlock(cfg, id, on);
-      await refresh();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      busyRef.current = false;
-      setBusyIp(null);
-    }
-  }
-
-  async function saveServer() {
-    const next: Cfg = { url: cfgDraft.url.trim().replace(/\/+$/, "") };
-    if (!isAllowedUrl(next.url)) {
-      setSaveError("URL nur https oder lokales Netz (http://192.168.x.x / .local).");
-      return;
-    }
-    setSaving(true);
-    setSaveError(null);
-    try {
-      await AsyncStorage.setItem(STORAGE.url, next.url);
-      setCfg(next);
-      setServerOpen(false);
-    } catch (e) {
-      setSaveError(`Speichern fehlgeschlagen: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setSaving(false);
-    }
-  }
 
   if (!fontsLoaded) {
     return (
@@ -409,11 +264,8 @@ export default function App() {
         {(
           [
             ["glyph", "GLYPH"],
-            ["devices", "GERÄTE"],
             ["browser", "BROWSER"],
             ["shield", "SHIELD"],
-            ["limits", "LIMITS"],
-            ["server", "SERVER"],
             ["mehr", "MEHR"],
           ] as const
         ).map(([key, label]) => (
@@ -440,65 +292,17 @@ export default function App() {
         </View>
       )}
 
-      {tab === "devices" && (
-        <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
-          <Text style={styles.sectionLabel}>GERÄTE IM NETZ</Text>
-          {error ? <Text style={styles.error}>⚠ {error}</Text> : null}
-          {devices === null && !error ? (
-            <View style={styles.center}>
-              <ActivityIndicator color={C.dot} />
-              <Text style={styles.hint}>verbinde …</Text>
-            </View>
-          ) : (
-            (devices || []).map((d) => {
-              const isBlocked = d.blocked || d.schedule_blocked;
-              const busy = busyIp === d.id;
-              return (
-                <View key={d.id} style={styles.deviceCard}>
-                  <View style={styles.deviceInfo}>
-                    <Text style={styles.deviceName}>{d.name}</Text>
-                    <Text style={styles.deviceIp}>
-                      {d.ip}{d.schedule_blocked ? " · Zeitplan" : ""}
-                    </Text>
-                  </View>
-                  <View style={styles.deviceState}>
-                    <View style={[styles.stateDot, { backgroundColor: isBlocked ? C.dotOff : C.dot }]} />
-                    <Text style={[styles.stateText, { color: isBlocked ? C.text3 : C.text }]}>
-                      {isBlocked ? "GESPERRT" : "ONLINE"}
-                    </Text>
-                  </View>
-                  <Pressable
-                    onPress={() => toggleDevice(d.id, !d.blocked)}
-                    disabled={busy}
-                    style={[styles.toggleBtn, d.blocked && styles.toggleBtnOn]}
-                  >
-                    {busy ? (
-                      <ActivityIndicator size="small" color={C.text} />
-                    ) : (
-                      <Text style={styles.toggleText}>{d.blocked ? "ENTSPERREN" : "SPERREN"}</Text>
-                    )}
-                  </Pressable>
-                </View>
-              );
-            })
-          )}
-        </ScrollView>
-      )}
 
       {tab === "shield" && <Shield />}
-
-      {tab === "limits" && <LimitSettings />}
 
       {tab === "mehr" && (
         <View style={styles.mehrRoot}>
           <View style={styles.mehrTabs}>
             {(
               [
+                ["limits", "LIMITS"],
                 ["commitment", "COMMIT"],
                 ["schedule", "ZEIT"],
-                ["guides", "GUIDES"],
-                ["lifetime", "LIFE"],
-                ["friends", "FRIENDS"],
               ] as const
             ).map(([key, label]) => (
               <Pressable key={key} onPress={() => setMehrSub(key)} style={styles.mehrTab}>
@@ -509,51 +313,16 @@ export default function App() {
               </Pressable>
             ))}
           </View>
-          {mehrSub === "commitment" ? (
+          {mehrSub === "limits" ? (
+            <LimitSettings />
+          ) : mehrSub === "commitment" ? (
             <CommitmentSettings />
-          ) : mehrSub === "schedule" ? (
-            <ScheduleSettings />
-          ) : mehrSub === "lifetime" ? (
-            <Paywall />
-          ) : mehrSub === "friends" ? (
-            <Leaderboard />
           ) : (
-            <View style={styles.guidesWrap}>
-              <HandoffGuide />
-              <ScreenTimeLockIn />
-            </View>
+            <ScheduleSettings />
           )}
         </View>
       )}
 
-      {tab === "server" && (
-        <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
-          <Text style={styles.sectionLabel}>SERVER (NETSITTER)</Text>
-          <Text style={styles.hint}>
-            Die App spricht die NetSitter-API auf dem Raspberry Pi an (Heimnetz, Port 3199). Keine
-            Anmeldung nötig — nur die URL wird lokal gespeichert.
-          </Text>
-          {saveError ? <Text style={styles.error}>⚠ {saveError}</Text> : null}
-          <Text style={styles.fieldLabel}>URL</Text>
-          <TextInput
-            style={styles.input}
-            value={cfgDraft.url}
-            onChangeText={(t) => setCfgDraft((c) => ({ ...c, url: t }))}
-            placeholder="http://192.168.0.221:3199"
-            placeholderTextColor={C.text3}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="url"
-          />
-          <Pressable onPress={saveServer} disabled={saving} style={styles.saveBtn}>
-            {saving ? (
-              <ActivityIndicator size="small" color={C.bg} />
-            ) : (
-              <Text style={styles.saveBtnText}>SPEICHERN</Text>
-            )}
-          </Pressable>
-        </ScrollView>
-      )}
       {/* Browser: einmal geöffnet bleibt er gemountet, damit Video/PiP beim
           Tab-Wechsel nicht abgewürgt wird. Aktiv = Vollbild über allem,
           Kleinbild = kleines verschiebbares Fenster, sonst unsichtbar. */}
