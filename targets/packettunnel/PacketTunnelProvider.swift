@@ -45,7 +45,10 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             let allow = cfg["allowlist"] as? [String] ?? []
             let mode = cfg["mode"] as? String ?? "blocklist"
             let ads = (cfg["ads"] as? Bool) ?? ((cfg["ads"] as? NSNumber)?.boolValue ?? false)
-            if !block.isEmpty || !allow.isEmpty || mode == "allowlist" {
+            // WICHTIG: ads mitprüfen — sonst würde ein reiner Werbeblocker
+            // (ohne Plattformen) hier durchfallen und still auf die alte
+            // BlocklistStore-Liste zurückfallen.
+            if !block.isEmpty || !allow.isEmpty || mode == "allowlist" || ads {
                 return (block, allow, mode, ads)
             }
         }

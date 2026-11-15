@@ -57,31 +57,29 @@ export async function saveDelayHours(hours: number): Promise<number> {
   return h;
 }
 
-/** Regeln laden und auf die aktuelle App-Auswahl zuschneiden (appCount Zeilen). */
-export async function loadRules(appCount: number, now = Date.now()): Promise<AppRule[]> {
+async function loadAllRules(now = Date.now()): Promise<AppRule[]> {
   let stored: AppRule[] = [];
   try {
     stored = parseRules(await AsyncStorage.getItem(RULES_KEY));
   } catch {
     stored = [];
   }
-  const byIndex = new Map(stored.map((r) => [r.index, applyPending(r, now)]));
+  return stored.map((r) => applyPending(r, now));
+}
+
+/**
+ * Regeln für die UI: auf die aktuelle App-Auswahl zugeschnitten (appCount
+ * Zeilen). Regeln außerhalb der Auswahl bleiben gespeichert (siehe persist) —
+ * wird die App später wieder gewählt, ist ihre Regel noch da.
+ */
+export async function loadRules(appCount: number, now = Date.now()): Promise<AppRule[]> {
+  const all = await loadAllRules(now);
+  const byIndex = new Map(all.map((r) => [r.index, r]));
   const count = Math.max(0, Math.floor(appCount));
   const out: AppRule[] = [];
   for (let i = 0; i < count; i++) {
     const r = byIndex.get(i);
-    out.push(
-      r ?? {
-        index: i,
-        label: `APP ${i + 1}`,
-        dailySeconds: 0,
-        weeklySeconds: 0,
-        pauseSeconds: 0,
-        opensPerDay: 0,
-        blocked: false,
-        pending: null,
-      },
-    );
+    out.push(r ?? blankRule(i));
   }
   return out;
 }
@@ -96,7 +94,11 @@ async function persist(rules: AppRule[]): Promise<void> {
   const payload = rules
     .filter((r) => !r.pending)
     .map((r) => ({ index: r.index, ...effectiveValues(r) }));
-  await setLimits(JSON.stringify(payload));
+  try {
+    await setLimits(JSON.stringify(payload));
+  } catch {
+    /* Extension-Sync ist best effort (Modul fehlt z. B. in Expo Go) */
+  }
 }
 
 /** Änderung beantragen (wirkt erst nach der Wartezeit). */
@@ -105,28 +107,50 @@ export async function requestRuleChange(
   changes: Partial<AppRuleValues>,
   appCount: number,
 ): Promise<AppRule[]> {
-  const [rules, delay] = await Promise.all([loadRules(appCount), loadDelayHours()]);
+  const [all, delay] = await Promise.all([loadAllRules(), loadDelayHours()]);
   const now = Date.now();
-  const next = rules.map((r) => (r.index === index ? requestChange(r, changes, now, delay) : r));
+  const next = all.map((r) => (r.index === index ? requestChange(r, changes, now, delay) : r));
   await persist(next);
-  return next;
+  return visible(next, appCount);
 }
 
 /** Ausstehende Änderung verwerfen (nur nach PIN). */
 export async function cancelRulePending(index: number, appCount: number): Promise<AppRule[]> {
-  const rules = await loadRules(appCount);
-  const next = rules.map((r) => (r.index === index ? cancelPending(r) : r));
+  const all = await loadAllRules();
+  const next = all.map((r) => (r.index === index ? cancelPending(r) : r));
   await persist(next);
-  return next;
+  return visible(next, appCount);
 }
 
 /** Fällige Änderungen anwenden + Ergebnis persistieren. */
 export async function applyDueChanges(appCount: number): Promise<AppRule[]> {
-  const rules = await loadRules(appCount);
+  const before = await loadAllRules();
   const now = Date.now();
-  const next = rules.map((r) => applyPending(r, now));
-  if (next.some((r, i) => r !== rules[i])) await persist(next);
-  return next;
+  const next = before.map((r) => applyPending(r, now));
+  if (next.some((r, i) => r !== before[i])) await persist(next);
+  return visible(next, appCount);
+}
+
+/** Nur die Zeilen der aktuellen Auswahl (Rest bleibt in der Ablage). */
+function visible(rules: AppRule[], appCount: number): AppRule[] {
+  const count = Math.max(0, Math.floor(appCount));
+  const byIndex = new Map(rules.map((r) => [r.index, r]));
+  const out: AppRule[] = [];
+  for (let i = 0; i < count; i++) out.push(byIndex.get(i) ?? blankRule(i));
+  return out;
+}
+
+function blankRule(index: number): AppRule {
+  return {
+    index,
+    label: `APP ${index + 1}`,
+    dailySeconds: 0,
+    weeklySeconds: 0,
+    pauseSeconds: 0,
+    opensPerDay: 0,
+    blocked: false,
+    pending: null,
+  };
 }
 
 /** Für die UI: Minuten-Presets → Sekunden. */

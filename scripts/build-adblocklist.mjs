@@ -38,7 +38,8 @@ const SKIP = new Set([
 
 async function loadText(src) {
   if (/^https?:\/\//.test(src)) {
-    const res = await fetch(src);
+    // Timeout, damit ein hängender Download den Build nicht blockiert.
+    const res = await fetch(src, { signal: AbortSignal.timeout(30_000) });
     if (!res.ok) throw new Error(`Download fehlgeschlagen: ${res.status}`);
     return await res.text();
   }
@@ -83,6 +84,18 @@ function collapse(domains) {
 const text = await loadText(SRC);
 const parsed = parseHosts(text);
 const minimal = collapse(parsed);
+
+// Sanity-Gate: eine kaputte/leere Quelle darf die ausgelieferte Liste NICHT
+// überschreiben (sonst schifft der Build einen wirkungslosen Blocker).
+const MIN_PARSED = 1_000;
+const MIN_MINIMAL = 500;
+if (parsed.size < MIN_PARSED || minimal.length < MIN_MINIMAL) {
+  console.error(
+    `abgebrochen: nur ${parsed.size} Domains geparst / ${minimal.length} Wurzel-Domains ` +
+      `(minimum ${MIN_PARSED}/${MIN_MINIMAL}). Quelle: ${SRC}`,
+  );
+  process.exit(1);
+}
 
 fs.writeFileSync(OUT_JSON, JSON.stringify(minimal));
 
