@@ -6,7 +6,7 @@ import DeviceActivity
 import React
 
 @objc(ScreenTimeShield)
-final class ScreenTimeShield: NSObject, FamilyActivityPickerHost {
+final class ScreenTimeShield: NSObject {
   static let group = "group.com.meister.blockphone"
   static let key = "shieldSelection"
 
@@ -37,9 +37,9 @@ final class ScreenTimeShield: NSObject, FamilyActivityPickerHost {
     }
     var vc = root
     while let p = vc.presentedViewController { vc = p }
-    let picker = UIHostingController(rootView: FamilyActivityPickerHost(onDone: { sel in
+    let picker = UIHostingController(rootView: FamilyActivityPickerHost(onCancel: { vc.dismiss(animated: true) }, onDone: { sel in
       if let data = try? PropertyListEncoder().encode(sel) {
-        (UserDefaults(suiteName: ScreenTimeShield.group) ?? UserDefaults.standard)?.set(data, forKey: ScreenTimeShield.key)
+        (UserDefaults(suiteName: ScreenTimeShield.group) ?? UserDefaults.standard).set(data, forKey: ScreenTimeShield.key)
       }
       vc.dismiss(animated: true) { resolve(["selection": "saved"]) }
     }))
@@ -50,7 +50,7 @@ final class ScreenTimeShield: NSObject, FamilyActivityPickerHost {
   @objc(applyShield:rejecter:)
   func applyShield(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
     let store = ManagedSettingsStore()
-    guard let data = (UserDefaults(suiteName: ScreenTimeShield.group) ?? UserDefaults.standard)?.data(forKey: ScreenTimeShield.key),
+    guard let data = (UserDefaults(suiteName: ScreenTimeShield.group) ?? UserDefaults.standard).data(forKey: ScreenTimeShield.key),
           let sel = try? PropertyListDecoder().decode(FamilyActivitySelection.self, from: data) else {
       resolve(["shield": "no_selection"]); return
     }
@@ -69,7 +69,7 @@ final class ScreenTimeShield: NSObject, FamilyActivityPickerHost {
 
   @objc(selectedCount:rejecter:)
   func selectedCount(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
-    guard let data = (UserDefaults(suiteName: ScreenTimeShield.group) ?? UserDefaults.standard)?.data(forKey: ScreenTimeShield.key),
+    guard let data = (UserDefaults(suiteName: ScreenTimeShield.group) ?? UserDefaults.standard).data(forKey: ScreenTimeShield.key),
           let sel = try? PropertyListDecoder().decode(FamilyActivitySelection.self, from: data) else {
       resolve(0); return
     }
@@ -77,16 +77,15 @@ final class ScreenTimeShield: NSObject, FamilyActivityPickerHost {
   }
 }
 
-protocol FamilyActivityPickerHost {}
-
 struct FamilyActivityPickerHost: View {
   let onDone: (FamilyActivitySelection) -> Void
+  let onCancel: () -> Void
   @State private var selection = FamilyActivitySelection()
   @Environment(\.dismiss) private var dismiss
   var body: some View {
     VStack {
       HStack {
-        Button("Abbrechen") { dismiss() }.padding()
+        Button("Abbrechen") { onCancel(); dismiss() }.padding()
         Spacer()
         Button("Fertig") { onDone(selection); dismiss() }.padding().bold()
       }
