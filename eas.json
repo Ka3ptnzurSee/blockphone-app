@@ -13,7 +13,6 @@
       "credentialsSource": "local"
     },
     "production": {
-      "autoIncrement": true,
       "credentialsSource": "local"
     }
   },
