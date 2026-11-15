@@ -32,18 +32,22 @@ final class ScreenTimeShield: NSObject {
 
   @objc(presentPicker:rejecter:)
   func presentPicker(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
-    guard let root = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.keyWindow?.rootViewController }).first else {
+    guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
+          let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController else {
       reject("no_root", "Kein Root-View-Controller", nil); return
     }
     var vc = root
     while let p = vc.presentedViewController { vc = p }
-    let picker = UIHostingController(rootView: FamilyActivityPickerHost(onCancel: { vc.dismiss(animated: true) }, onDone: { sel in
-      if let data = try? PropertyListEncoder().encode(sel) {
-        (UserDefaults(suiteName: ScreenTimeShield.group) ?? UserDefaults.standard).set(data, forKey: ScreenTimeShield.key)
-      }
-      vc.dismiss(animated: true) { resolve(["selection": "saved"]) }
-    }))
-    if #available(iOS 14.0, *) { picker.view.backgroundColor = .clear }
+    let host = FamilyActivityPickerHost(
+      onDone: { sel in
+        if let data = try? PropertyListEncoder().encode(sel) {
+          (UserDefaults(suiteName: ScreenTimeShield.group) ?? UserDefaults.standard).set(data, forKey: ScreenTimeShield.key)
+        }
+        vc.dismiss(animated: true) { resolve(["selection": "saved"]) }
+      },
+      onCancel: { vc.dismiss(animated: true) { resolve(["selection": "cancelled"]) } }
+    )
+    let picker = UIHostingController(rootView: host)
     vc.present(picker, animated: true)
   }
 
