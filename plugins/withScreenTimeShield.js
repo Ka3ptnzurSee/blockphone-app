@@ -1,36 +1,56 @@
-// withScreenTimeShield.js — Expo Config Plugin
-//
-// Setzt beim `expo prebuild` die FamilyControls-Entitlements der Haupt-App.
-// Die App-Extension-Targets (ShieldConfig/ShieldAction/DeviceActivityMonitor)
-// müssen einmalig in Xcode angelegt werden — siehe native/README.md.
-//
-// Registriert in app.json unter "plugins": ["./plugins/withScreenTimeShield"].
+const fs = require("fs");
+const path = require("path");
+const { withEntitlementsPlist, withDangerousMod, withXcodeProject } = require("expo/config-plugins");
 
-const { withEntitlementsPlist } = require("@expo/config-plugins");
+// Screen-Time-Shield (Family Controls). Abschaltbar mit SCREENTIME_SHIELD=0.
+const ENABLED = process.env.SCREENTIME_SHIELD !== "0";
+const NATIVE_FILES = ["ScreenTimeShield.swift", "ScreenTimeShieldBridge.m"];
 
-// Family Controls ist ein von Apple zu genehmigendes Entitlement. Ohne Freigabe
-// fehlt es im App-Store-Profil und das Signieren schlägt fehl. Deshalb nur
-// aktiv, wenn der System-Shield ausdrücklich gebaut werden soll:
-//   BLOCKPHONE_SYSTEM_SHIELD=1 eas build -p ios --profile production
-const ENABLED = process.env.BLOCKPHONE_SYSTEM_SHIELD === "1";
-
-module.exports = function withScreenTimeShield(config) {
-  if (!ENABLED) return config;
+function withEntitlements(config) {
   return withEntitlementsPlist(config, (cfg) => {
-    // Screen-Time / Family Controls (iOS 16+). Ohne dieses Entitlement
-    // schlägt AuthorizationCenter.requestAuthorization fehl.
     cfg.modResults["com.apple.developer.family-controls"] = true;
-
-    // App-Gruppe (teilt Einstellungen zwischen App + Extensions via UserDefaults/Container).
-    // Bundle-ID der App: com.meister.blockphone → Gruppe: group.com.meister.blockphone
     const group = "group." + (config.ios?.bundleIdentifier || "com.meister.blockphone");
-    // Bestehenden Wert respektieren — kann Array ODER einzelner String sein
-    // (Single-Value-Plist). [...string] würde den String in Zeichen zerlegen.
     const raw = cfg.modResults["com.apple.security.application-groups"];
     const existing = Array.isArray(raw) ? raw : raw ? [raw] : [];
     if (!existing.includes(group)) existing.push(group);
     cfg.modResults["com.apple.security.application-groups"] = existing;
-
     return cfg;
   });
+}
+
+function withNativeSources(config) {
+  config = withDangerousMod(config, [
+    "ios",
+    async (cfg) => {
+      const src = path.join(cfg.modRequest.projectRoot, "shield", "AppTarget");
+      const dest = path.join(cfg.modRequest.platformProjectRoot, cfg.modRequest.projectName);
+      fs.mkdirSync(dest, { recursive: true });
+      for (const f of NATIVE_FILES) {
+        const from = path.join(src, f);
+        if (fs.existsSync(from)) fs.copyFileSync(from, path.join(dest, f));
+      }
+      return cfg;
+    },
+  ]);
+
+  config = withXcodeProject(config, (cfg) => {
+    const proj = cfg.modResults;
+    const appName = cfg.modRequest.projectName;
+    const groupKey = proj.findPBXGroupKey({ name: appName });
+    for (const f of NATIVE_FILES) {
+      const rel = appName + "/" + f;
+      if (!proj.hasFile(rel)) {
+        proj.addSourceFile(rel, { target: proj.getFirstTarget().uuid }, groupKey);
+      }
+    }
+    return cfg;
+  });
+
+  return config;
+}
+
+module.exports = function withScreenTimeShield(config) {
+  if (!ENABLED) return config;
+  return withNativeSources(withEntitlements(config));
 };
+

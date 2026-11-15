@@ -18,6 +18,7 @@ import Browser from "./components/Browser";
 import PinGate from "./components/PinGate";
 import LimitSettings from "./components/LimitSettings";
 import Shield from "./components/Shield";
+import AppBlocker from "./components/AppBlocker";
 import CommitmentSettings from "./components/CommitmentSettings";
 import InterventionGate from "./components/InterventionGate";
 import ScheduleSettings from "./components/ScheduleSettings";
@@ -128,7 +129,7 @@ const MINI_MIN_Y = 26 + MINI_PAD;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), Math.max(lo, hi));
 
-type TabKey = "glyph" | "browser" | "shield" | "mehr";
+type TabKey = "glyph" | "browser" | "shield" | "apps" | "mehr";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // App
@@ -267,6 +268,7 @@ export default function App() {
             ["glyph", "GLYPH"],
             ["browser", "BROWSER"],
             ["shield", "SHIELD"],
+            ["apps", "APPS"],
             ["mehr", "MEHR"],
           ] as const
         ).map(([key, label]) => (
@@ -295,6 +297,8 @@ export default function App() {
 
 
       {tab === "shield" && <Shield />}
+
+      {tab === "apps" && <AppBlocker />}
 
       {tab === "mehr" && (
         <View style={styles.mehrRoot}>

@@ -30,7 +30,7 @@
           "audio"
         ]
       },
-      "buildNumber": "137"
+      "buildNumber": "139"
     },
     "android": {
       "package": "com.meister.blockphone",
@@ -48,7 +48,8 @@
     "plugins": [
       "expo-splash-screen",
       "expo-secure-store",
-      "@bacons/apple-targets"
+      "@bacons/apple-targets",
+      "./plugins/withScreenTimeShield.js"
     ],
     "extra": {
       "eas": {
