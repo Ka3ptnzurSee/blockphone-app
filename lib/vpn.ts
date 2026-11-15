@@ -15,9 +15,10 @@ export async function startDnsBlocking(
   domains: string[],
   allowlist: string[] = [],
   mode: DnsMode = "blocklist",
+  ads = false,
 ): Promise<boolean> {
   if (!VpnManager) throw new Error("VpnManager-Modul fehlt — nur im nativen Build verfügbar");
-  return VpnManager.start(domains, allowlist, mode);
+  return VpnManager.start(domains, allowlist, mode, ads);
 }
 
 /** Stoppt den Tunnel (hebt alle DNS-Blocks auf). */
@@ -47,13 +48,14 @@ export async function enableDnsBlocking(
   platforms: readonly Platform[],
   mode: DnsMode = "blocklist",
   allowlist: string[] = [],
+  ads = false,
 ): Promise<boolean> {
   if (!VpnManager) throw new Error("VpnManager-Modul fehlt — nur im nativen Build verfügbar");
   const domains = buildDnsBlocklist(platforms);
   // "Internet aus" braucht keine Plattform-Auswahl — alles außer der Allowlist
-  // wird gesperrt.
-  if (mode === "blocklist" && domains.length === 0) return VpnManager.stop();
-  return VpnManager.start(domains, allowlist, mode);
+  // wird gesperrt. Werbeblocker allein reicht ebenfalls als Grund für den Tunnel.
+  if (mode === "blocklist" && domains.length === 0 && !ads) return VpnManager.stop();
+  return VpnManager.start(domains, allowlist, mode, ads);
 }
 
 /** Systemweites DNS-Blocking deaktivieren (Tunnel stoppen). */

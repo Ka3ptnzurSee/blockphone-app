@@ -37,22 +37,41 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     /// Regeln aus der Provider-Konfiguration (bevorzugt) oder App Group.
     /// mode = "blocklist" (nur Gelistetes sperren) oder "allowlist" (alles außer
     /// Gelistetem sperren = Internet aus).
-    private func loadRules() -> (blocklist: [String], allowlist: [String], mode: String) {
+    /// ads = Werbe-/Tracker-Liste aus dem Extension-Bundle dazunehmen.
+    private func loadRules() -> (blocklist: [String], allowlist: [String], mode: String, ads: Bool) {
         if let proto = protocolConfiguration as? NETunnelProviderProtocol,
            let cfg = proto.providerConfiguration {
             let block = cfg["blocklist"] as? [String] ?? []
             let allow = cfg["allowlist"] as? [String] ?? []
             let mode = cfg["mode"] as? String ?? "blocklist"
+            let ads = (cfg["ads"] as? Bool) ?? ((cfg["ads"] as? NSNumber)?.boolValue ?? false)
             if !block.isEmpty || !allow.isEmpty || mode == "allowlist" {
-                return (block, allow, mode)
+                return (block, allow, mode, ads)
             }
         }
-        return (BlocklistStore.load(), [], "blocklist")
+        return (BlocklistStore.load(), [], "blocklist", false)
+    }
+
+    /// Werbe-/Tracker-Domains: als Ressource im Extension-Bundle (adblock.json,
+    /// erzeugt von scripts/build-adblocklist.mjs). Bewusst NICHT über
+    /// providerConfiguration — 41k Einträge sprengen die VPN-Plist; als
+    /// Bundle-Ressource ist die Liste ausserdem offline aktuell.
+    private static func loadAdDomains() -> [String] {
+        guard let url = Bundle.main.url(forResource: "adblock", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let arr = (try? JSONSerialization.jsonObject(with: data)) as? [String]
+        else { return [] }
+        return arr
     }
 
     override func startTunnel(options: [String: NSObject]?,
                               completionHandler: @escaping (Error?) -> Void) {
         let rules = loadRules()
+        var blocklist = rules.blocklist
+        if rules.ads && rules.mode != "allowlist" {
+            let ads = Self.loadAdDomains()
+            if !ads.isEmpty { blocklist += ads }
+        }
 
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "10.8.0.1")
         let ipv4 = NEIPv4Settings(addresses: ["10.8.0.1"], subnetMasks: ["255.255.255.255"])
@@ -61,7 +80,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         settings.dnsSettings = NEDNSSettings(servers: ["10.8.0.1"])
         settings.mtu = 1280
 
-        let f = DnsFilter(blocklist: rules.blocklist, allowlist: rules.allowlist, mode: rules.mode)
+        let f = DnsFilter(blocklist: blocklist, allowlist: rules.allowlist, mode: rules.mode)
         filter = f
 
         setTunnelNetworkSettings(settings) { [weak self] error in

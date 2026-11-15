@@ -20,8 +20,8 @@ public class VpnManagerModule: Module {
     public func definition() -> ModuleDefinition {
         Name("VpnManager")
 
-        AsyncFunction("start") { (domains: [String], allowlist: [String], mode: String) async throws -> Bool in
-            try await VpnService.shared.start(blocklist: domains, allowlist: allowlist, mode: mode)
+        AsyncFunction("start") { (domains: [String], allowlist: [String], mode: String, ads: Bool) async throws -> Bool in
+            try await VpnService.shared.start(blocklist: domains, allowlist: allowlist, mode: mode, ads: ads)
             return true
         }
 
@@ -98,7 +98,7 @@ final class VpnService {
         }
     }
 
-    func start(blocklist: [String], allowlist: [String] = [], mode: String = "blocklist") async throws {
+    func start(blocklist: [String], allowlist: [String] = [], mode: String = "blocklist", ads: Bool = false) async throws {
         let mgr = try await manager()
 
         let proto = NETunnelProviderProtocol()
@@ -108,6 +108,8 @@ final class VpnService {
             "blocklist": clean(blocklist),
             "allowlist": clean(allowlist),
             "mode": mode == "allowlist" ? "allowlist" : "blocklist",
+            // Werbe-/Tracker-Liste liegt als Bundle-Ressource im Tunnel (adblock.json).
+            "ads": ads,
         ]
         proto.disconnectOnSleep = false
 
@@ -141,7 +143,8 @@ final class VpnService {
         }) else { return }
 
         if let proto = mgr.protocolConfiguration as? NETunnelProviderProtocol {
-            proto.providerConfiguration = ["blocklist": clean(domains)]
+            let ads = (proto.providerConfiguration?["ads"] as? Bool) ?? false
+            proto.providerConfiguration = ["blocklist": clean(domains), "ads": ads]
             mgr.protocolConfiguration = proto
             try await save(mgr)
         }

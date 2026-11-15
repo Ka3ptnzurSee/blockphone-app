@@ -1,15 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ALL_PLATFORMS, PLATFORM_DOMAINS } from "../lib/dnsBlocklist";
 import type { Platform } from "../lib/browser";
-import {
-  disableDnsBlocking,
-  dnsBlockingAvailable,
-  dnsBlockingStatus,
-  enableDnsBlocking,
-  type DnsMode,
-} from "../lib/vpn";
+import { dnsBlockingAvailable, dnsBlockingStatus, type DnsMode } from "../lib/vpn";
+import { applyDnsSettings, loadDnsSettings, saveDnsSettings, stopDns } from "../lib/dnsSettings";
+import { AD_DOMAIN_COUNT } from "../lib/adBlocklist";
 
 // Nothing-Design-Palette (identisch zu App.tsx)
 const C = {
@@ -33,10 +28,10 @@ const LABELS: Record<string, string> = {
 };
 
 // Systemweites DNS-Blocking (PacketTunnelProvider, Personal VPN).
-// Blockt die Plattform-Domains über DNS — gilt app-übergreifend (auch native Apps),
-// nicht nur im eingebauten Browser.
-const SELECTION_KEY = "pb-dns-platforms";
-const MODE_KEY = "pb-dns-mode";
+// Blockt Plattform-Domains UND (optional) die Werbe-/Tracker-Liste über DNS —
+// gilt app-übergreifend (auch native Apps), nicht nur im eingebauten Browser.
+// Die Einstellungen liegen in lib/dnsSettings.ts, damit der APPS-Tab denselben
+// Zustand schalten kann.
 
 export default function Shield() {
   const available = dnsBlockingAvailable();
@@ -49,6 +44,8 @@ export default function Shield() {
   const [selected, setSelected] = useState<Platform[]>(ALL_PLATFORMS);
   // "blocklist" = nur die Plattformen sperren, "allowlist" = Internet aus.
   const [mode, setMode] = useState<DnsMode>("blocklist");
+  // Werbe-/Tracker-Domains zusätzlich blocken (unabhängig von den Plattformen).
+  const [ads, setAds] = useState(true);
 
   async function refresh() {
     try {
@@ -61,27 +58,13 @@ export default function Shield() {
     }
   }
 
-  // Auswahl laden (kaputte/leere Werte → alle Plattformen).
+  // Auswahl laden (kaputte/leere Werte → Defaults).
   useEffect(() => {
     (async () => {
-      try {
-        const raw = await AsyncStorage.getItem(SELECTION_KEY);
-        if (!raw) return;
-        const parsed = JSON.parse(raw);
-        if (!Array.isArray(parsed)) return;
-        const valid = parsed.filter((p): p is Platform =>
-          (ALL_PLATFORMS as string[]).includes(p),
-        );
-        if (valid.length > 0) setSelected(valid);
-      } catch {
-        /* Auswahl bleibt auf Default */
-      }
-      try {
-        const m = await AsyncStorage.getItem(MODE_KEY);
-        if (m === "allowlist" || m === "blocklist") setMode(m);
-      } catch {
-        /* Modus bleibt auf Default */
-      }
+      const settings = await loadDnsSettings();
+      setSelected(settings.platforms);
+      setMode(settings.mode);
+      setAds(settings.ads);
     })();
   }, []);
 
@@ -89,14 +72,34 @@ export default function Shield() {
     if (busy || next === mode) return;
     setMode(next);
     try {
-      await AsyncStorage.setItem(MODE_KEY, next);
+      await saveDnsSettings({ platforms: selected, mode: next, ads });
     } catch {
       /* best effort */
     }
     // Laufenden Tunnel sofort umstellen.
     if (connected) {
       try {
-        await enableDnsBlocking(selected, next);
+        await applyDnsSettings({ platforms: selected, mode: next, ads });
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    }
+  }
+
+  /** Werbe-/Tracker-Liste schalten (gilt für alle Apps). */
+  async function toggleAds() {
+    if (busy) return;
+    const next = !ads;
+    setAds(next);
+    try {
+      await saveDnsSettings({ platforms: selected, mode, ads: next });
+    } catch {
+      /* best effort */
+    }
+    if (connected) {
+      try {
+        if (mode === "blocklist" && selected.length === 0 && !next) await stopDns();
+        else await applyDnsSettings({ platforms: selected, mode, ads: next });
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       }
@@ -108,14 +111,14 @@ export default function Shield() {
     const next = selected.includes(p) ? selected.filter((x) => x !== p) : [...selected, p];
     setSelected(next);
     try {
-      await AsyncStorage.setItem(SELECTION_KEY, JSON.stringify(next));
+      await saveDnsSettings({ platforms: next, mode, ads });
     } catch {
       /* best effort */
     }
     // Laufenden Tunnel sofort mit der neuen Liste versorgen.
-    if (connected && next.length > 0) {
+    if (connected && (next.length > 0 || ads)) {
       try {
-        await enableDnsBlocking(next, mode);
+        await applyDnsSettings({ platforms: next, mode, ads });
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       }
@@ -141,13 +144,13 @@ export default function Shield() {
     setError(null);
     try {
       if (connected) {
-        await disableDnsBlocking();
+        await stopDns();
       } else {
-        if (selected.length === 0) {
-          setError("Keine Plattform ausgewählt.");
+        if (selected.length === 0 && !ads && mode === "blocklist") {
+          setError("Nichts ausgewählt — Plattformen oder Werbeblocker einschalten.");
           return;
         }
-        await enableDnsBlocking(selected, mode);
+        await applyDnsSettings({ platforms: selected, mode, ads });
       }
       // Der Tunnel braucht einen Moment (iOS-Dialog + Verbindungsaufbau) →
       // ein paar Mal nachfassen, statt sofort "INAKTIV" anzuzeigen.
@@ -214,6 +217,12 @@ export default function Shield() {
         </View>
 
         <View style={styles.chips}>
+          <Pressable onPress={() => void toggleAds()} disabled={busy} style={[styles.chip, ads && styles.chipOn]}>
+            <Text style={[styles.chipText, ads && styles.chipTextOn]}>WERBUNG + TRACKER</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.chips}>
           {ALL_PLATFORMS.map((p) => {
             const on = selected.includes(p);
             return (
@@ -233,7 +242,7 @@ export default function Shield() {
         <Text style={styles.meta}>
           {mode === "allowlist"
             ? "ALLES GESPERRT (kein DNS) — nur Ausnahmen kommen durch"
-            : `${selected.length} PLATTFORMEN · ${domainCount} DOMAINS`}
+            : `${selected.length} PLATTFORMEN · ${domainCount} + ${ads ? AD_DOMAIN_COUNT.toLocaleString("de-DE") : 0} WERBE-DOMAINS`}
           {status ? ` · ${status.toUpperCase()}` : ""}
         </Text>
 
