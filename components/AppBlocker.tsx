@@ -125,6 +125,14 @@ export default function AppBlocker() {
     setMaster(savedMaster || (savedMaster === false && st.active));
     const nextRules = await applyDueChanges(st.selected.apps);
     setRules(nextRules);
+    // Abgelaufene Anträge sofort durchsetzen (sonst würde z. B. eine nach
+    // Wartezeit fällige Sperre erst beim nächsten Fingertipp greifen).
+    try {
+      if (savedMaster) await applyShield();
+      else await syncShield(false, nextRules);
+    } catch {
+      /* Sperre darf das Laden nicht blockieren */
+    }
   }, []);
 
   useEffect(() => {
