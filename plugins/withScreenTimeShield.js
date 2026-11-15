@@ -10,6 +10,7 @@ function withEntitlements(config) {
   return withEntitlementsPlist(config, (cfg) => {
     cfg.modResults["com.apple.developer.family-controls"] = true;
     const group = "group." + (config.ios?.bundleIdentifier || "com.meister.blockphone");
+    if (process.env.APP_GROUP !== "1") return cfg;
     const raw = cfg.modResults["com.apple.security.application-groups"];
     const existing = Array.isArray(raw) ? raw : raw ? [raw] : [];
     if (!existing.includes(group)) existing.push(group);
