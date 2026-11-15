@@ -30,6 +30,9 @@ final class ScreenTimeShield: NSObject {
   static let selectionKey = "shieldSelection"
   static let activeKey = "shieldActive"
   static let limitsKey = "appLimits"
+  /// Anzahl gesperrter Kategorien — (ManagedSettings.ApplicationCategories lässt
+  /// sich je nach SDK-Version nicht gefahrlos auslesen → eigener Zähler).
+  static let catsKey = "shieldCategories"
 
   private static var defaults: UserDefaults {
     UserDefaults(suiteName: group) ?? UserDefaults.standard
@@ -131,6 +134,7 @@ final class ScreenTimeShield: NSObject {
     store.shield.webDomains = webs.isEmpty ? nil : webs
     let active = !(apps.isEmpty && cats.isEmpty && webs.isEmpty)
     Self.defaults.set(active, forKey: Self.activeKey)
+    Self.defaults.set(cats.count, forKey: Self.catsKey)
     resolve([
       "shield": active ? "on" : "no_selection",
       "apps": apps.count,
@@ -147,6 +151,7 @@ final class ScreenTimeShield: NSObject {
     store.shield.applicationCategories = nil
     store.shield.webDomains = nil
     Self.defaults.set(false, forKey: Self.activeKey)
+    Self.defaults.set(0, forKey: Self.catsKey)
     resolve(["shield": "off"])
   }
 
@@ -175,9 +180,11 @@ final class ScreenTimeShield: NSObject {
     let store = ManagedSettingsStore()
     let apps = store.shield.applications?.count ?? 0
     let web = store.shield.webDomains?.count ?? 0
-    var cats = 0
-    if case let .specific(set)? = store.shield.applicationCategories { cats = set.count }
-    if case .all? = store.shield.applicationCategories { cats = -1 }
+    // `.specific` hat je nach SDK ein oder zwei Associated Values → nur auf
+    // "gesetzt" prüfen und den eigenen Zähler auswerten.
+    let cats = store.shield.applicationCategories == nil
+      ? 0
+      : max(1, Self.defaults.integer(forKey: Self.catsKey))
     resolve([
       "active": apps > 0 || web > 0 || cats != 0,
       "apps": apps,
