@@ -23,7 +23,6 @@
 // capabilityType, verifiziert 15.11.2026) — das muss im Developer-Portal von
 // Hand passieren. Erst danach den Build mit dem passenden Flag starten.
 //
-//
 // Also: Expo Config Plugin registriert in app.json als
 //   ["./plugins/withAppleTargets.js"]
 const { existsSync } = require("node:fs");
