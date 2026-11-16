@@ -16,7 +16,7 @@
 // Aufruf: node scripts/check-targets.mjs   (Exit 1 bei Fehler)
 
 import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
-import { join, dirname, basename } from "node:path";
+import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -70,6 +70,11 @@ function swiftSources(dir) {
     else if (entry.endsWith(".swift")) out.push(p);
   }
   return out;
+}
+
+if (!existsSync(targetsDir)) {
+  console.error("check-targets: FEHLER — Ordner targets/ fehlt");
+  process.exit(1);
 }
 
 const dirs = readdirSync(targetsDir).filter((d) => statSync(join(targetsDir, d)).isDirectory());

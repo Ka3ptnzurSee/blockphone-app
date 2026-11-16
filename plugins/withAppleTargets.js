@@ -23,9 +23,15 @@
 // capabilityType, verifiziert 15.11.2026) — das muss im Developer-Portal von
 // Hand passieren. Erst danach den Build mit dem passenden Flag starten.
 //
+//
 // Also: Expo Config Plugin registriert in app.json als
 //   ["./plugins/withAppleTargets.js"]
+const { existsSync } = require("node:fs");
+const { join, dirname } = require("node:path");
+
 const appleTargets = require("@bacons/apple-targets/app.plugin");
+
+const ROOT = "./targets";
 
 // Flags sind "1" / "true" — alles andere ist aus (auch wenn versehentlich "0"
 // oder ein leerer String gesetzt ist).
@@ -49,9 +55,21 @@ function matchFor(list) {
 
 module.exports = function withAppleTargets(config) {
   const list = targetsFor();
+
+  // Ein Flag darf nie still ins Leere laufen: fehlt der Ordner, matcht der
+  // Glob nichts und der Build wäre ohne die Extension — ohne Fehlermeldung.
+  const projectRoot = config._internal?.projectRoot || dirname(__dirname);
+  const missing = list.filter((name) => !existsSync(join(projectRoot, ROOT, name)));
+  if (missing.length) {
+    throw new Error(
+      `[apple-targets] Target-Ordner fehlt: ${missing.join(", ")} — ` +
+        `erwartet unter ${ROOT}/<name>/expo-target.config.js`,
+    );
+  }
+
   // eslint-disable-next-line no-console
   console.log(`[apple-targets] baue ${list.length} Target(s): ${list.join(", ")}`);
-  return appleTargets(config, { root: "./targets", match: matchFor(list) });
+  return appleTargets(config, { root: ROOT, match: matchFor(list) });
 };
 
 module.exports.targetsFor = targetsFor;
