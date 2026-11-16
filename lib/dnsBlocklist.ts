@@ -1,6 +1,6 @@
 // lib/dnsBlocklist.ts — Domain-Zuordnung für das systemweite DNS-Blocking.
 //
-// Der PacketTunnelProvider (Personal VPN, native/ios/PacketTunnelProvider) blockt
+// Der PacketTunnelProvider (Personal VPN, targets/packettunnel) blockt
 // DNS-Anfragen per Suffix-Match (DnsFilter.isBlocked). Diese Zuordnung übersetzt
 // die Plattformen aus browser.ts in die Domains, die die nativen Apps UND die
 // Web-Versionen nutzen — analog zu Freedoms Blocklist, aber fokussiert auf die

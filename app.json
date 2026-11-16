@@ -48,7 +48,7 @@
     "plugins": [
       "expo-splash-screen",
       "expo-secure-store",
-      "@bacons/apple-targets",
+      "./plugins/withAppleTargets.js",
       "./plugins/withScreenTimeShield.js"
     ],
     "extra": {

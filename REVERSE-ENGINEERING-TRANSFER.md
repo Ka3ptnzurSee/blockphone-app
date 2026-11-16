@@ -10,7 +10,7 @@ Quellen: `/opt/ios-re/dull/REPORT.md`, `/opt/ios-re/onesec/REPORT.md`,
 | Hebel | Dull | one sec | PhoneBlock+ Status |
 |---|---|---|---|
 | ① Feed-Filter (WKWebView) | ✅ `Filters/*` | ✅ Safari-Extension | ✅ **fertig** (`lib/browser.ts`, `lib/filters.generated.ts`) |
-| ② Screen-Time-Shield (FamilyControls) | ✅ ShieldConfig/Action/DeviceActivity | ✅ + DeviceActivityReport | ⚠️ Code fertig (`native/ios/`), wartet auf Apple-Freigabe |
+| ② Screen-Time-Shield (FamilyControls) | ✅ ShieldConfig/Action/DeviceActivity | ✅ + DeviceActivityReport | ⚠️ Code fertig (`targets/`), Target per Flag aus bis Apple-Freigabe |
 | ③ Intervention (Pflichtaufgabe) | — | ✅ Atmung/Mathe/… | 🆕 **zu bauen** (dieser Doc) |
 | ➕ Focus-Filter | — | ✅ `OneSecFocusFilter` | 🔲 optional, **kein** Apple-Antrag nötig |
 | ➕ PIN + Streak | ✅ 4-PIN + „DAYS ON YOUR TERMS" | ✅ | ✅ **fertig** (`components/PinGate.tsx`, `lib/streak.ts`) |
@@ -30,7 +30,7 @@ Vor dem Öffnen der Ziel-App erzwingt one sec eine bewusste Unterbrechung. Die
 
 ## Konkrete Snippets
 
-### a) FamilyControls-Shield (bereits in `native/ios/ScreenTimeManager.swift`)
+### a) FamilyControls-Shield (im Build: `modules/screentime-shield/ios/ScreenTimeShieldModule.swift`)
 
 ```swift
 import FamilyControls

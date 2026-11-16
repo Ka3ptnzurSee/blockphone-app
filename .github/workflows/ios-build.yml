@@ -33,6 +33,9 @@ jobs:
           npm install -g eas-cli
           npm install
 
+      - name: Check native targets
+        run: node scripts/check-targets.mjs
+
       - name: Build iOS (local, umgeht EAS-Cloud-Kontingent)
         env:
           CI: 1

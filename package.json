@@ -37,7 +37,10 @@
     "build": "OUT=$(mktemp -d) && expo export --platform ios --output-dir \"$OUT\"",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "targets:check": "node scripts/check-targets.mjs",
+    "prebuild:ios": "expo prebuild -p ios --clean --no-install",
+    "convex:deploy": "node scripts/convex-deploy.mjs"
   },
   "private": true
 }

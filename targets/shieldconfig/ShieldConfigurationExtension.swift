@@ -1,13 +1,14 @@
-// ShieldConfigurationProvider.swift
+// ShieldConfigurationExtension.swift
 //
 // Custom Sperr-Screen (ShieldConfiguration) im Nothing-/Dull-Look.
 // Wenn eine App gesperrt ist, zeigt iOS DIESEN Screen statt der App.
 //
 // Extension-Target: com.apple.ManagedSettingsUI.shield-configuration-service
 // Prinzipal-Klasse (Info.plist NSExtensionPrincipalClass):
-//   $(PRODUCT_MODULE_NAME).ShieldConfigurationProvider
+//   $(PRODUCT_MODULE_NAME).ShieldConfigurationExtension
 //
 // Vorbild: Dull.app → DullShieldConfig.ShieldConfigurationProvider
+// (Klasse heißt hier wie vom Target-Plugin erwartet: ShieldConfigurationExtension)
 // Texte: "LESS. PLEASE COME AGAIN." / "ITEMIZED ATTENTION:" (Dull v1.9.3, de)
 //
 // ShieldConfigurationDataSource ist ein PROTOKOLL → KEIN `override`.
@@ -16,7 +17,7 @@ import ManagedSettings
 import ManagedSettingsUI
 import UIKit
 
-final class ShieldConfigurationProvider: NSObject, ShieldConfigurationDataSource {
+final class ShieldConfigurationExtension: NSObject, ShieldConfigurationDataSource {
 
     // MARK: - Apps
 

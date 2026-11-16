@@ -3,8 +3,8 @@
 // Setzt beim `expo prebuild` die Network-Extension-Entitlements der Haupt-App
 // für den DNS-Blocking-Tunnel (PacketTunnelProvider = Personal VPN).
 //
-// Die Extension-Targets (PacketTunnelProvider.appex) müssen einmalig in Xcode
-// angelegt werden und dieselben Entitlements bekommen — siehe native/README.md.
+// Die Extension-Targets werden NICHT hier, sondern über ./targets/*+plugins/withAppleTargets.js
+// erzeugt (Quelle der Wahrheit: targets/). Siehe docs/NATIVE-STRUKTUR.md.
 //
 // Registriert in app.json unter "plugins": ["./plugins/withNetworkBlocker"].
 

@@ -12,7 +12,7 @@ Methode: Code-Lesung + `tsc --noEmit` + `node --test` + `generate-filters.mjs`-D
 | Feed-Filter (Dull-Port) | `assets/filters/{youtube,instagram,facebook,x,reddit}` + `lib/filters.generated.ts` | in sync, JS syntaktisch valide |
 | Tageslimit-Engine | `lib/limits.ts`, `lib/limitStore.ts`, `components/LimitSettings.tsx` | 77 Tests grün |
 | Session/Cooldown | `lib/schedule.ts`, `lib/sessionStore.ts` | im Browser aktiv |
-| Systemweite Sperre (native Apps) | `native/ios/**`, `plugins/with*.js`, `components/Shield.tsx` | **nicht im Build** |
+| Systemweite Sperre (native Apps) | `modules/screentime-shield/`, `plugins/with*.js`, `components/Shield.tsx` | **im Build** (Build 148) |
 
 Injektionsgrößen: YouTube 28 KB · Instagram 139 KB · Facebook 71 KB · X 21 KB · Reddit 28 KB.
 
@@ -51,7 +51,7 @@ Injektionsgrößen: YouTube 28 KB · Instagram 139 KB · Facebook 71 KB · X 21 
     Entitlements (`com.apple.developer.family-controls`, `…networking.networkextension`, `…vpn.api`, App Group).
     Das lokale App-Store-Profil `credentials/ios_appstore.mobileprovision` enthält **keines** davon (nur `application-identifier`,
     `keychain-access-groups`, `beta-reports-active`) → nächster EAS-Build bricht an der Signatur, und die `.appex`-Targets
-    (ShieldConfig/ShieldAction/DeviceActivityMonitor, PacketTunnelProvider.appex) sind ohnehin nicht integriert (`native/README.md`).
+    (ShieldConfig/ShieldAction/DeviceActivityMonitor, PacketTunnelProvider.appex) sind als Targets verdrahtet, aber per Flag aus (`docs/NATIVE-STRUKTUR.md`).
     Apple-Freigabe für Family Controls steht aus (`FAMILY-CONTROLS-ANTRAG.md`).
 14. **Tote Einstellungen:** Quiet Hours + Posting Mode werden gespeichert (`ScheduleSettings.tsx`), aber nirgends erzwungen
     (`withinQuietHours()` wird von keiner Datei aufgerufen).

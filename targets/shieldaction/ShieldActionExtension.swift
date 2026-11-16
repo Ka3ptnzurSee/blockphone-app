@@ -1,4 +1,4 @@
-// ShieldActionHandler.swift
+// ShieldActionExtension.swift
 //
 // Button-Aktion auf dem custom Sperr-Screen (ShieldActionExtension).
 // Der "primary"/"secondary" Button der ShieldConfiguration kann hierüber
@@ -6,14 +6,14 @@
 //
 // Extension-Target: com.apple.ManagedSettings.shield-action-service
 // Prinzipal-Klasse (Info.plist NSExtensionPrincipalClass):
-//   $(PRODUCT_MODULE_NAME).ShieldActionHandler
+//   $(PRODUCT_MODULE_NAME).ShieldActionExtension
 //
 // ShieldActionDelegate ist ein PROTOKOLL → KEIN `override`.
 
 import ManagedSettings
 import ManagedSettingsUI
 
-final class ShieldActionHandler: NSObject, ShieldActionDelegate {
+final class ShieldActionExtension: NSObject, ShieldActionDelegate {
 
     func handle(action: ShieldAction,
                 for application: Application,

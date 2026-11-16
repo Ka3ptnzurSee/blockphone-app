@@ -52,9 +52,12 @@ Provisioning-Profilen verfügbar ist. Ohne Freigabe schlägt jeder Shield-Build 
    DeviceActivityMonitor) automatisch ins Xcode-Projekt hängt (damit EAS Cloud sie baut).
 4. Rebuild → TestFlight mit vollem Shield.
 
-Der Swift-Code liegt bereits fertig in `native/ios/`:
-- `ScreenTimeManager.swift` (Autorisierung + Shield + Bridge)
-- `ScreenTime.m` (RN-Bridge-Registrierung)
-- `ShieldConfigurationExtension/ShieldConfigurationProvider.swift` (Sperr-Screen)
-- `ShieldActionExtension/ShieldActionHandler.swift` (Button)
-- `DeviceActivityMonitorExtension/ScheduledAccessMonitor.swift` (Monitoring)
+Der Swift-Code liegt fertig in `targets/` (Quelle der Wahrheit) bzw. `modules/`:
+- `modules/screentime-shield/ios/ScreenTimeShieldModule.swift` (Autorisierung + Shield + Bridge)
+- `targets/shieldconfig/ShieldConfigurationExtension.swift` (Sperr-Screen)
+- `targets/shieldaction/ShieldActionExtension.swift` (Button)
+- `targets/deviceactivity/DeviceActivityMonitorExtension.swift` (Monitoring)
+
+Gebaut werden shieldconfig/shieldaction/deviceactivity nur mit
+`BLOCKPHONE_SHIELD_EXT=1` / `BLOCKPHONE_DEVICE_ACTIVITY=1` — siehe
+`docs/NATIVE-STRUKTUR.md`.

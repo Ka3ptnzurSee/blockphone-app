@@ -1,11 +1,14 @@
-// ScheduledAccessMonitor.swift
+// DeviceActivityMonitorExtension.swift
 //
 // DeviceActivity-Monitor: Zeitpläne + Limits → automatisch re-shield.
 // Vorbild: Dull.app → DullDeviceActivityMonitor.ScheduledAccessMonitor
 //
+// Prinzipal-Klasse (vom @bacons/apple-targets-Plugin erwartet):
+//   DeviceActivityMonitorExtension
+//
 // Extension-Target: com.apple.deviceactivity.monitor-extension
 // Prinzipal-Klasse (Info.plist NSExtensionPrincipalClass):
-//   $(PRODUCT_MODULE_NAME).ScheduledAccessMonitor
+//   $(PRODUCT_MODULE_NAME).DeviceActivityMonitorExtension
 //
 // DeviceActivityMonitor ist eine KLASSE → `override` ist hier korrekt.
 // Die Schedule-Definition (startMonitoring) gehört in die HAUPT-App
@@ -15,7 +18,7 @@ import DeviceActivity
 import ManagedSettings
 import Foundation
 
-final class ScheduledAccessMonitor: DeviceActivityMonitor {
+final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
 
     private let store = ManagedSettingsStore()
 

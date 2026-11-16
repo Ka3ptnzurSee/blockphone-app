@@ -97,12 +97,14 @@ Beides ist über die ASC-API **nicht** machbar (geprüft 15.11. mit dem Team-Key
 → Nötig: 1 Portal-Aktion (Antrag Family Controls für das Extension-Bundle-ID) +
 `@bacons/apple-targets`-Target für die Extension. Dann ist §5 vollständig.
 
-## 7. Bestehende, nicht gebaute Extension-Quellen
+## 7. Extension-Quellen (seit 16.11.2026 echte Targets)
 
-`native/ios/DeviceActivityMonitorExtension/ScheduledAccessMonitor.swift`,
-`native/ios/ShieldConfigurationExtension`, `native/ios/ShieldActionExtension`,
-`shield/future/DeviceActivityMonitor/` — vollständig vorhanden, aber **nicht** im
-Xcode-Projekt (kein Target, keine Entitlements). Sie sind die Vorlage für §6.
+`targets/deviceactivity/DeviceActivityMonitorExtension.swift`,
+`targets/shieldconfig/ShieldConfigurationExtension.swift`,
+`targets/shieldaction/ShieldActionExtension.swift` — vollständig vorhanden und als
+Xcode-Target verdrahtet, aber per Flag **aus** (`BLOCKPHONE_SHIELD_EXT=1` bzw.
+`BLOCKPHONE_DEVICE_ACTIVITY=1`), weil das Provisioning-Profil fehlt.
+Details: `docs/NATIVE-STRUKTUR.md`.
 
 ## 8. Tests / Prüfung
 
@@ -163,7 +165,8 @@ Jetzt 4 Tabs: **GLYPH · BROWSER · SPERREN · SETUP**
 ### 9.5 Löschschutz und Family Sharing (Antwort auf Pers Frage)
 
 `denyAppRemoval` ist in ManagedSettings vorhanden (`ManagedSettingsStore.application.denyAppRemoval`,
-Vorlage lag ungenutzt in `native/ios/ScreenTimeManager.swift:63`). Es ist jetzt als
+Vorlage lag ungenutzt in der alten `native/ios`-Kopie, jetzt in
+`modules/screentime-shield/ios/ScreenTimeShieldModule.swift`). Es ist jetzt als
 Schalter **LÖSCHSCHUTZ** in SPERREN → APPS verdrahtet (`setDenyAppRemoval`), inklusive
 Rücklesen des echten Werts.
 

@@ -39,3 +39,19 @@ Docs: https://docs.expo.dev/eas/index.md
 - If `ios/` and `android/` directories do not exist, they are generated (Continuous Native Generation). Never create or edit them by hand — configure native behavior in `app.json` and config plugins.
 - Expo Go only includes its bundled native modules. After adding a library with native code, the app needs a development build: `npx expo run:ios|android` locally, or `eas build --profile development`.
 - Prefer recommended Expo modules over third-party libraries, and check your available skills before adding dependencies. Docs: https://docs.expo.dev/versions/latest/index.md
+
+## Native Apple-Targets (Blockphone-spezifisch)
+
+- **Eine Quelle der Wahrheit: `targets/`.** Kein `native/`-Ordner mehr — die alte
+  Kopie ist am 16.11.2026 gelöscht worden, weil sie gegenüber `targets/`
+  auseinandergelaufen war. Lege nativen Extension-Code **nur** dort an.
+- Ein Target = ein Ordner in `targets/` mit `expo-target.config.js`. Die Auswahl,
+  was gebaut wird, macht `plugins/withAppleTargets.js`:
+  `packettunnel` immer, `shieldconfig`+`shieldaction` mit
+  `BLOCKPHONE_SHIELD_EXT=1`, `deviceactivity` mit `BLOCKPHONE_DEVICE_ACTIVITY=1`.
+- Der Swift-Klassenname muss exakt der `NSExtensionPrincipalClass` entsprechen,
+  die `@bacons/apple-targets` generiert (`PacketTunnelProvider`,
+  `ShieldConfigurationExtension`, `ShieldActionExtension`,
+  `DeviceActivityMonitorExtension`) — sonst startet die Extension nicht.
+- Vor jedem Build: `npm run targets:check` (Exit 1 = Target würde nicht starten).
+- Hintergrund: `docs/NATIVE-STRUKTUR.md`, Server-Teil: `docs/BACKEND-CONVEX.md`.
