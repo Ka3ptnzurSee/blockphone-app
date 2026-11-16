@@ -108,6 +108,9 @@ public class ScreenTimeShieldModule: Module {
         host = UIHostingController(rootView: screen)
         // fullScreen ohne Höhenbegrenzung — sonst kollabiert die App-Liste.
         host.modalPresentationStyle = .fullScreen
+        // Wisch-Geste aus: sonst schließt der Nutzer den Picker ohne
+        // onDone/onCancel und die JS-Promise bleibt für immer offen.
+        host.isModalInPresentation = true
         root.present(host, animated: true)
       }
     }
@@ -232,7 +235,7 @@ public class ScreenTimeShieldModule: Module {
           "categoriesSet": store.shield.applicationCategories != nil,
           "denyAppRemoval": store.application.denyAppRemoval ?? false,
         ],
-        "shieldFailed": UserDefaults.standard.bool(forKey: "shieldFailed"),
+        "shieldFailed": (Self.value(forKey: "shieldFailed") as? Bool) ?? false,
       ]
     }
 
