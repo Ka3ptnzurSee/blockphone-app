@@ -9,7 +9,7 @@
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { Platform } from "./browser";
-import { ALL_PLATFORMS } from "./dnsBlocklist";
+import { ALL_PLATFORMS, normalizeCustomDomain } from "./dnsBlocklist";
 import { enableDnsBlocking, disableDnsBlocking, dnsBlockingStatus, type DnsMode } from "./vpn";
 
 const KEY = "pb-dns-settings";
@@ -22,12 +22,15 @@ export type DnsSettings = {
   mode: DnsMode;
   /** Werbe-/Tracker-Domains blocken (unabhängig von den Plattformen). */
   ads: boolean;
+  /** Eigene Domains, die zusätzlich gesperrt werden ("add block"). */
+  custom: string[];
 };
 
 export const DEFAULT_DNS: DnsSettings = {
   platforms: ALL_PLATFORMS,
   mode: "blocklist",
   ads: true,
+  custom: [],
 };
 
 export async function loadDnsSettings(): Promise<DnsSettings> {
@@ -54,11 +57,16 @@ function normalize(v: unknown): DnsSettings {
   const r = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
   const list = Array.isArray(r.platforms) ? r.platforms : [];
   const platforms = list.filter((p): p is Platform => (ALL_PLATFORMS as string[]).includes(p as string));
+  const custom = (Array.isArray(r.custom) ? r.custom : [])
+    .map((d) => normalizeCustomDomain(String(d)))
+    .filter((d): d is string => !!d)
+    .slice(0, 200);
   return {
     platforms: platforms.length > 0 ? platforms : DEFAULT_DNS.platforms,
     mode: r.mode === "allowlist" ? "allowlist" : "blocklist",
     // Default an: Werbeblocker ist der Kern dieses Schalters.
     ads: r.ads === undefined ? true : r.ads === true,
+    custom: [...new Set(custom)],
   };
 }
 
@@ -72,7 +80,7 @@ export async function saveDnsSettings(s: DnsSettings): Promise<void> {
 
 /** Einstellungen anwenden: Tunnel mit dieser Konfiguration (neu) starten. */
 export async function applyDnsSettings(s: DnsSettings): Promise<boolean> {
-  return enableDnsBlocking(s.platforms, s.mode, [], s.ads);
+  return enableDnsBlocking(s.platforms, s.mode, [], s.ads, s.custom);
 }
 
 /** Tunnel aus. */
@@ -95,5 +103,6 @@ export function describeDns(s: DnsSettings): string {
   const parts: string[] = [];
   if (s.ads) parts.push("WERBUNG + TRACKER");
   if (s.platforms.length > 0) parts.push(`${s.platforms.length} PLATTFORMEN`);
+  if (s.custom.length > 0) parts.push(`${s.custom.length} EIGENE`);
   return parts.length ? parts.join(" + ") : "NICHTS AUSGEWÄHLT";
 }

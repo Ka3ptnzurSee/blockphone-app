@@ -181,6 +181,7 @@ export function ledgerSettle(ledger: UsageLedger, total: number, ok: boolean): v
 // und KLEIN wäre ein No-op. Immer auf einen existierenden Nicht-Browser-Tab.
 export const BROWSER_TAB = "browser";
 
-export function browserExitTab<T extends string>(activeTab: T): T | "shield" {
-  return activeTab === BROWSER_TAB ? "shield" : activeTab;
+/** Tab, zu dem der Vollbild-Browser beim Schließen zurückkehrt ("sperren"). */
+export function browserExitTab<T extends string>(activeTab: T): T | "sperren" {
+  return activeTab === BROWSER_TAB ? "sperren" : activeTab;
 }

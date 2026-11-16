@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   ALL_PLATFORMS,
   buildDnsBlocklist,
+  normalizeCustomDomain,
   DEFAULT_DNS_BLOCKLIST,
   PLATFORM_DOMAINS,
 } from "./dnsBlocklist";
@@ -78,4 +79,23 @@ test("DEFAULT_DNS_BLOCKLIST: keine breiten Shared-CDN-Domains", () => {
   for (const broad of ["gstatic.com", "google.com", "googleapis.com"]) {
     assert.ok(!DEFAULT_DNS_BLOCKLIST.includes(broad), `${broad} darf nicht geblockt werden`);
   }
+});
+
+test("eigene Domains kommen zur Blocklist dazu (add block)", () => {
+  const list = buildDnsBlocklist(["youtube"], ["tiktok.com", "TWITCH.tv"]);
+  assert.ok(list.includes("tiktok.com"));
+  assert.ok(list.includes("twitch.tv"), "normalisiert auf lowercase");
+  assert.ok(list.includes("youtube.com"));
+  assert.equal(list.includes("tiktok.com") && list.includes("tiktok.com"), true);
+});
+
+test("normalizeCustomDomain: URL, www und Müll", () => {
+  assert.equal(normalizeCustomDomain("https://www.TikTok.com/@user"), "tiktok.com");
+  assert.equal(normalizeCustomDomain("  reddit.com/r/all "), "reddit.com");
+  assert.equal(normalizeCustomDomain(".example.org."), "example.org");
+  assert.equal(normalizeCustomDomain(""), null);
+  assert.equal(normalizeCustomDomain("keine domain"), null);
+  assert.equal(normalizeCustomDomain("javascript:alert(1)"), null);
+  assert.equal(normalizeCustomDomain("a..b"), null);
+  assert.equal(normalizeCustomDomain("x".repeat(300) + ".com"), null);
 });

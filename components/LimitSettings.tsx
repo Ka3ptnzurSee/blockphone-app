@@ -118,7 +118,7 @@ export default function LimitSettings() {
   }, []);
 
   // Harte Sperre: Änderungen sind gesperrt (Umgehungsschutz). Aufheben nur
-  // über MEHR → COMMIT (PIN oder 48h-Recovery).
+  // über SETUP → COMMIT (PIN oder 48h-Recovery).
   const locked = lock.locked;
 
   async function toggleFilter(key: keyof FilterConfig) {
@@ -189,8 +189,8 @@ export default function LimitSettings() {
           <Text style={styles.lockTitle}>EINSTELLUNGEN GESPERRT</Text>
           <Text style={styles.lockBody}>
             {lock.canRecoverNow
-              ? "Recovery abgelaufen — Freigabe jetzt in MEHR → COMMIT möglich."
-              : `Änderungen gesperrt. Recovery in ${formatDurationMs(lock.recoveryLeftMs)} (MEHR → COMMIT).`}
+              ? "Recovery abgelaufen — Freigabe jetzt in SETUP → COMMIT möglich."
+              : `Änderungen gesperrt. Recovery in ${formatDurationMs(lock.recoveryLeftMs)} (SETUP → COMMIT).`}
           </Text>
         </View>
       ) : null}

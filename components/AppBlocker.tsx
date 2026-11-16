@@ -19,13 +19,18 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   applyShield,
   clearShield,
+  getDenyAppRemoval,
   pickAppsToBlock,
   requestScreenTimeAccess,
   screenTimeAvailable,
   screenTimeStatus,
+  screenTimeUnavailableReason,
   selectedAppsCount,
+  setDenyAppRemoval,
   shieldApps,
+  shieldDiagnostics,
   shieldState,
+  type Diagnostics,
   type ShieldState,
 } from "../shield/ScreenTimeShield";
 import {
@@ -99,6 +104,9 @@ export default function AppBlocker() {
   const [shield, setShield] = useState<ShieldState | null>(null);
   const [dns, setDns] = useState<DnsSettings | null>(null);
   const [dnsOn, setDnsOn] = useState(false);
+  const [diag, setDiag] = useState<Diagnostics | null>(null);
+  const [denyRemoval, setDenyRemoval] = useState(false);
+  const [lastError, setLastError] = useState<string | null>(null);
   const [master, setMaster] = useState(false);
   const [rules, setRules] = useState<AppRule[]>([]);
   const [delayHours, setDelayHours] = useState(24);
@@ -121,6 +129,9 @@ export default function AppBlocker() {
     setDns(settings);
     setDnsOn(running);
     setDelayHours(delay);
+    const [d, deny] = await Promise.all([shieldDiagnostics(), getDenyAppRemoval()]);
+    setDiag(d);
+    setDenyRemoval(deny);
     const savedMaster = masterRaw === "1";
     setMaster(savedMaster || (savedMaster === false && st.active));
     const nextRules = await applyDueChanges(st.selected.apps);
@@ -174,11 +185,31 @@ export default function AppBlocker() {
   };
 
   // ── Blocker 2: App-Sperre (Screen Time) ────────────────────────────────────
-  const syncShield = async (wantMaster: boolean, list: AppRule[]) => {
+  /**
+   * Sperre anwenden und das Ergebnis PRÜFEN. Vorher wurden Fehler verschluckt:
+   * die UI schrieb „aktiv", im ManagedSettingsStore stand nichts. Jetzt wird
+   * `not_applied` (System hat die Sperre nicht übernommen) sichtbar gemeldet.
+   */
+  const syncShield = async (wantMaster: boolean, list: AppRule[]): Promise<string | null> => {
     const blocked = list.filter((r) => !r.pending && r.blocked).map((r) => r.index);
-    if (wantMaster) await applyShield();
-    else if (blocked.length > 0) await shieldApps(blocked);
-    else await clearShield();
+    const res = wantMaster
+      ? await applyShield()
+      : blocked.length > 0
+        ? await shieldApps(blocked)
+        : await clearShield();
+    const st = await shieldState();
+    setShield(st);
+    setDiag(await shieldDiagnostics());
+    if (res.shield === "unavailable") {
+      return screenTimeUnavailableReason() ?? "Natives Modul fehlt";
+    }
+    if (res.shield === "no_selection") {
+      return "Keine Apps gewählt — erst WÄHLEN (System-Picker), dann sperren.";
+    }
+    if (res.shield === "not_applied") {
+      return "iOS hat die Sperre NICHT übernommen — Bildschirmzeit-Zugriff erlauben (ERLAUBEN) und Gerät neu starten.";
+    }
+    return null;
   };
 
   const toggleMaster = async () => {
@@ -196,11 +227,10 @@ export default function AppBlocker() {
           return;
         }
       }
-      await syncShield(next, rules);
+      const problem = await syncShield(next, rules);
       setMaster(next);
       await AsyncStorage.setItem(MASTER_KEY, next ? "1" : "0");
-      setShield(await shieldState());
-      setMsg(next ? "App-Sperre aktiv (Bildschirmzeit)." : "App-Sperre aus.");
+      setMsg(problem ?? (next ? "App-Sperre aktiv (Bildschirmzeit)." : "App-Sperre aus."));
     } catch (e) {
       setMsg(e instanceof Error ? e.message : String(e));
     } finally {
@@ -226,8 +256,9 @@ export default function AppBlocker() {
         const list = await loadRules(apps);
         setRules(list);
         setShield(await shieldState());
-        if (master) await syncShield(true, list);
-        setMsg(`${apps} Apps/Kategorien/Webseiten in der Auswahl.`);
+        const problem = master ? await syncShield(true, list) : null;
+        setMsg(problem ?? `${apps} Apps/Kategorien/Webseiten in der Auswahl.`);
+        setDiag(await shieldDiagnostics());
       } else if (r.selection === "cancelled") {
         setMsg(null);
       } else {
@@ -247,9 +278,13 @@ export default function AppBlocker() {
       const apps = shield?.selected.apps ?? 0;
       const next = await requestRuleChange(index, patch, apps);
       setRules(next);
-      setMsg(`Änderung beantragt — greift in ${delayHours} h.`);
-      // Dauer-Sperre mit Wartezeit: erst nach Ablauf.
-      await syncShield(master, next);
+      setMsg(
+        delayHours === 0
+          ? "Änderung sofort übernommen (Wartezeit aus)."
+          : `Änderung beantragt — greift in ${delayHours} h.`,
+      );
+      const problem = await syncShield(master, next);
+      if (problem) setMsg(problem);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : String(e));
     } finally {
@@ -274,6 +309,51 @@ export default function AppBlocker() {
   const setDelay = async (h: number) => {
     const saved = await saveDelayHours(h);
     setDelayHours(saved);
+    setMsg(saved === 0 ? "Wartezeit aus — Änderungen greifen sofort." : `Wartezeit: ${saved} h.`);
+  };
+
+  /** Löschschutz schalten — Ergebnis ehrlich zurückmelden. */
+  const toggleDenyRemoval = async () => {
+    if (busy) return;
+    setBusy("deny");
+    setLastError(null);
+    try {
+      const want = !denyRemoval;
+      const res = await setDenyAppRemoval(want);
+      setDenyRemoval(res.applied);
+      if (want && !res.applied) {
+        setLastError(
+          "iOS hat den Löschschutz verweigert (nur mit Kind-/Family-Autorisierung möglich) — Schalter bleibt aus.",
+        );
+      } else {
+        setMsg(res.applied ? "Löschschutz aktiv." : "Löschschutz aus.");
+      }
+      setDiag(await shieldDiagnostics());
+    } catch (e) {
+      setLastError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /** Alles entfernen: Sperre + Löschschutz (Notausstieg, z. B. nach Test). */
+  const clearAll = async () => {
+    setBusy("clear");
+    setLastError(null);
+    try {
+      await clearShield();
+      await setDenyAppRemoval(false);
+      setDenyRemoval(false);
+      setMaster(false);
+      await AsyncStorage.setItem(MASTER_KEY, "0");
+      setShield(await shieldState());
+      setDiag(await shieldDiagnostics());
+      setMsg("Sperre und Löschschutz entfernt.");
+    } catch (e) {
+      setLastError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
   };
 
   const blockedCount = rules.filter((r) => !r.pending && r.blocked).length;
@@ -338,10 +418,20 @@ export default function AppBlocker() {
 
       {!screenTimeAvailable ? (
         <View style={s.card}>
-          <Text style={s.warnTitle}>NOCH NICHT AKTIV</Text>
+          <Text style={s.warnTitle}>MODUL FEHLT</Text>
           <Text style={s.cardText}>
-            Dieser Build enthält die Screen-Time-Sperre nicht. Apple muss das
-            Family-Controls-Entitlement freigeben; danach wird sie mit dem nächsten Build aktiv.
+            {screenTimeUnavailableReason() ?? "Natives Screen-Time-Modul nicht geladen."}
+            {"\n\n"}Ohne dieses Modul kann die App keine echte App sperren (nur der
+            DNS-Werbeblocker arbeitet weiter).
+          </Text>
+        </View>
+      ) : diag?.shieldFailed ? (
+        <View style={s.card}>
+          <Text style={s.warnTitle}>SPERRE WIRD NICHT ÜBERNOMMEN</Text>
+          <Text style={s.cardText}>
+            iOS hat die Sperre nicht in den ManagedSettingsStore geschrieben. Häufigste Ursachen:
+            Bildschirmzeit-Zugriff nicht erlaubt, Gerät nach dem Erlauben nicht neu gestartet, oder
+            die Auswahl ist leer. Siehe DIAGNOSE unten.
           </Text>
         </View>
       ) : null}
@@ -479,10 +569,11 @@ export default function AppBlocker() {
 
       {/* ── 5. Wartezeit ───────────────────────────────────────────────────── */}
       <View style={s.card}>
-        <Text style={s.cardLabel}>WARTEZEIT FÜR ÄNDERUNGEN</Text>
+        <Text style={s.cardLabel}>WARTEZEIT FÜR ÄNDERUNGEN · OPTIONAL</Text>
         <Text style={s.cardText}>
-          Limit- und Sperr-Änderungen werden erst nach dieser Zeit wirksam (Pflicht-Delay).
-          Sofortiges Hochdrehen ist damit ausgeschlossen.
+          {delayHours === 0
+            ? "AUS — Änderungen greifen sofort. Kein Antrag, kein Countdown."
+            : `Änderungen werden erst nach ${delayHours} h wirksam (Schutz gegen Kurzschluss-Entscheidungen). Abschaltbar: SOFORT.`}
         </Text>
         <View style={s.chipRow}>
           <Text style={s.chipLabel}>DELAY</Text>
@@ -493,17 +584,85 @@ export default function AppBlocker() {
               style={[s.chip, delayHours === h && s.chipOn]}
             >
               <Text style={[s.chipText, delayHours === h && s.chipTextOn]}>
-                {h === 24 ? "1 TAG" : `${h} H`}
+                {h === 0 ? "SOFORT" : h === 24 ? "1 TAG" : `${h} H`}
               </Text>
             </Pressable>
           ))}
         </View>
       </View>
 
+      {/* ── 6. Löschschutz ─────────────────────────────────────────────────── */}
+      <View style={s.card}>
+        <View style={s.row}>
+          <View style={s.rowText}>
+            <Text style={s.rowTitle}>LÖSCHSCHUTZ</Text>
+            <Text style={s.rowSub}>
+              {denyRemoval ? "aktiv — Apps können nicht gelöscht werden" : "aus"}
+            </Text>
+          </View>
+          <Pressable
+            onPress={() => void toggleDenyRemoval()}
+            disabled={!!busy}
+            style={[s.chip, denyRemoval && s.chipOn]}
+          >
+            <Text style={[s.chipText, denyRemoval && s.chipTextOn]}>
+              {denyRemoval ? "AN" : "AUS"}
+            </Text>
+          </Pressable>
+        </View>
+        <Text style={s.hint}>
+          Sperrt das Löschen von Apps über Apples ManagedSettings. Das greift nur, wenn das Gerät
+          über Family/Family-Sharing als Kind-Gerät autorisiert ist — sonst verweigert iOS die
+          Einstellung (der Schalter springt dann zurück). Auf dem eigenen Gerät ist die
+          zuverlässige Variante: Einstellungen → Bildschirmzeit → Beschränkungen → „Apps löschen"
+          aus (Code kennt nur die andere Person).
+        </Text>
+      </View>
+
+      {/* ── 7. Diagnose ────────────────────────────────────────────────────── */}
+      <View style={s.card}>
+        <View style={s.row}>
+          <View style={s.rowText}>
+            <Text style={s.cardLabel}>DIAGNOSE</Text>
+            <Text style={s.rowSub}>
+              {diag
+                ? `Modul ${diag.module === "expo" ? "OK" : diag.module} · ${diag.authorization} · Speicher ${diag.storage}`
+                : "lädt …"}
+            </Text>
+          </View>
+          <Pressable onPress={() => void reload()} disabled={!!busy} style={s.btnSmall}>
+            <Text style={s.btnSmallText}>NEU</Text>
+          </Pressable>
+        </View>
+        {diag ? (
+          <>
+            <Text style={s.meta}>
+              AUSWAHL: {diag.selected.apps} Apps · {diag.selected.categories} Kategorien ·{" "}
+              {diag.selected.webDomains} Webseiten
+            </Text>
+            <Text style={s.meta}>
+              STORE: {diag.store.apps} Apps gesperrt · {diag.store.webDomains} Webseiten ·{" "}
+              Kategorien {diag.store.categoriesSet ? "gesetzt" : "—"} · Löschschutz{" "}
+              {diag.store.denyAppRemoval ? "an" : "aus"}
+            </Text>
+            <Text style={s.meta}>
+              SPEICHER: {diag.storage === "app_group" ? "App Group (teilt mit Extension)" : "Standard (nur App — keine App Group im Profil)"}
+            </Text>
+            {diag.shieldFailed ? (
+              <Text style={s.warnTitle}>LETZTER SCHREIBVERSUCH: vom System nicht übernommen</Text>
+            ) : null}
+            {lastError ? <Text style={s.warnTitle}>FEHLER: {lastError}</Text> : null}
+          </>
+        ) : null}
+        <Pressable onPress={() => void clearAll()} disabled={!!busy} style={s.btnSmall}>
+          <Text style={s.btnSmallText}>ALLES ENTFERNEN</Text>
+        </Pressable>
+      </View>
+
       {busy ? <ActivityIndicator color={C.text} style={{ marginTop: 10 }} /> : null}
       {msg ? <Text style={s.msg}>{msg}</Text> : null}
       <Text style={s.foot}>
-        Werbeblocker = DNS-Tunnel (eigener Tab SHIELD für Plattformen/Internet-aus). App-Sperre =
+        Werbeblocker = DNS-Tunnel (SPERREN → DOMAINS für Plattformen/Internet-aus). App-Sperre =
         Apple Bildschirmzeit, gilt systemweit auch bei geschlossener App.
       </Text>
     </ScrollView>

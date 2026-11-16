@@ -15,11 +15,16 @@
 // (Default 1 Tag, einstellbar). Das ist der Schutz gegen "future-you", der im
 // Impuls hochdreht — dasselbe Muster wie Dulls 24-h-Filter-Delay.
 
-/** Wartezeit-Stufen für Änderungen (Stunden). Default 24 h = 1 Tag. */
-export const DELAY_PRESETS_H = [12, 24, 48] as const;
+/**
+ * Wartezeit-Stufen für Änderungen (Stunden). 0 = SOFORT (keine Wartezeit).
+ * Die Wartezeit ist ein optionales Hilfsmittel, keine Pflicht — Build 148.
+ */
+export const DELAY_PRESETS_H = [0, 12, 24, 48] as const;
 export const DEFAULT_DELAY_H = 24;
-export const MIN_DELAY_H = 1;
+export const MIN_DELAY_H = 0;
 export const MAX_DELAY_H = 72;
+/** true = es gibt überhaupt eine Wartezeit (0 h = sofort). */
+export const hasDelay = (hours: number): boolean => hours > 0;
 
 export type AppRuleValues = {
   dailySeconds: number;
@@ -58,6 +63,11 @@ const clampInt = (v: unknown, lo: number, hi: number, fallback = 0): number => {
 
 export function delayMsFor(hours: number): number {
   return clampInt(hours, MIN_DELAY_H, MAX_DELAY_H, DEFAULT_DELAY_H) * 3600_000;
+}
+
+/** 0 h (oder weniger) = Änderung greift sofort, ohne Antrag. */
+export function isInstant(hours: number): boolean {
+  return clampInt(hours, MIN_DELAY_H, MAX_DELAY_H, DEFAULT_DELAY_H) === 0;
 }
 
 /** Regeln aus unbekannter Quelle (AsyncStorage) validieren. */
@@ -144,6 +154,8 @@ export function requestChange(
     }
   }
   if (Object.keys(diff).length === 0) return rule;
+  // Wartezeit 0 = sofort anwenden (kein Antrag, kein Countdown).
+  if (isInstant(delayHours)) return { ...rule, ...diff, pending: null };
   return { ...rule, pending: { at: now + delayMsFor(delayHours), changes: diff } };
 }
 

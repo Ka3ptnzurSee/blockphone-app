@@ -8,6 +8,7 @@ import {
   applyPending,
   cancelPending,
   delayMsFor,
+  isInstant,
   describeRule,
   effectiveValues,
   enforceableRules,
@@ -84,8 +85,8 @@ test("pendingRemainingMs zählt herunter, nie negativ", () => {
   assert.equal(pendingRemainingMs(base(), 0), 0);
 });
 
-test("delayMsFor klemmt auf 1..72 h", () => {
-  assert.equal(delayMsFor(0), 1 * H);
+test("delayMsFor klemmt auf 0..72 h (0 = sofort)", () => {
+  assert.equal(delayMsFor(0), 0);
   assert.equal(delayMsFor(24), 24 * H);
   assert.equal(delayMsFor(9999), 72 * H);
   assert.equal(delayMsFor(NaN), DEFAULT_DELAY_H * H);
@@ -143,4 +144,13 @@ test("hasRule/describeRule/formatAmount/formatRemaining", () => {
   assert.equal(formatAmount(5400), "1h 30m");
   assert.equal(formatRemaining(0), "0 min");
   assert.match(formatRemaining(90 * H), /T/);
+});
+
+test("Wartezeit 0 = Änderung sofort (kein Antrag)", () => {
+  const r = requestChange(base(), { blocked: true }, 5000, 0);
+  assert.equal(r.pending, null, "kein Antrag bei SOFORT");
+  assert.equal(r.blocked, true, "Sperre direkt gesetzt");
+  assert.equal(requestChange(base(), { opensPerDay: 3 }, 0, 0).opensPerDay, 3);
+  assert.equal(isInstant(0), true);
+  assert.equal(isInstant(24), false);
 });

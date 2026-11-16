@@ -13,12 +13,12 @@ import {
 
 // ── Finding 1: KLEIN wechselt immer auf einen Nicht-Browser-Tab ──────────────
 test("browserExitTab: verlässt den Browser-Tab (KLEIN/Verlassen ist kein No-op)", () => {
-  assert.equal(browserExitTab("browser"), "shield");
+  assert.equal(browserExitTab("browser"), "sperren");
   assert.notEqual(browserExitTab("browser"), "browser");
   // Andere Tabs bleiben unangetastet.
   assert.equal(browserExitTab("devices"), "devices");
   assert.equal(browserExitTab("glyph"), "glyph");
-  assert.equal(browserExitTab("shield"), "shield");
+  assert.equal(browserExitTab("sperren"), "sperren");
 });
 
 // ── Finding 9: fehlgeschlagenes addUsage verliert keine Sekunden ──────────────

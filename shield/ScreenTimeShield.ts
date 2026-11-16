@@ -1,23 +1,35 @@
 // shield/ScreenTimeShield.ts — JS-Brücke zum nativen ScreenTimeShield-Modul
-// (shield/AppTarget/ScreenTimeShield.swift, via plugins/withScreenTimeShield.js).
+// (modules/screentime-shield/ios/ScreenTimeShieldModule.swift).
 //
-// Alle Aufrufe sind defensiv: in Expo Go / ohne natives Modul liefern sie
-// neutrale Werte, statt zu crashen.
+// WICHTIG (Build 148): Das Modul ist jetzt ein **Expo-Modul**
+// (`requireOptionalNativeModule`). Vorher war es ein Legacy-RCT-Modul, das über
+// `NativeModules.ScreenTimeShield` geholt wurde — in RN 0.86 / Expo SDK 57 kam
+// dort `undefined` an, alle Aufrufe liefen still ins Leere ("Sperre geht
+// nicht"). Zusätzlich liefert das Modul jetzt echte Ergebnisse
+// (`applied`/`not_applied`) und eine `diagnostics()`-Auskunft, statt Fehler zu
+// verschlucken.
 
-import { NativeModules, Platform } from "react-native";
+import { Platform } from "react-native";
+import ScreenTimeShieldNative, {
+  type Diagnostics,
+  type ShieldState,
+  type ShieldResult,
+} from "../modules/screentime-shield";
 
-type ShieldStatus = { status: "approved" | "denied" | "notDetermined" };
-const M = Platform.OS === "ios" ? (NativeModules.ScreenTimeShield as any) : null;
+const M = Platform.OS === "ios" ? ScreenTimeShieldNative : null;
 
 export const screenTimeAvailable = !!M;
 
-export type ShieldState = {
-  active: boolean;
-  apps: number;
-  categories: number;
-  webDomains: number;
-  selected: { apps: number; categories: number; webDomains: number };
-};
+/** Warum das Modul fehlt (für die Diagnose-Anzeige). */
+export function screenTimeUnavailableReason(): string | null {
+  if (M) return null;
+  if (Platform.OS !== "ios") return `Plattform ${Platform.OS} — Screen Time gibt es nur auf iOS`;
+  return "Natives Modul ScreenTimeShield nicht geladen (Build ohne Modul?)";
+}
+
+export type ShieldStatus = { status: "approved" | "denied" | "notDetermined"; error?: string };
+
+export type { ShieldState, ShieldResult, Diagnostics };
 
 const EMPTY_STATE: ShieldState = {
   active: false,
@@ -27,15 +39,32 @@ const EMPTY_STATE: ShieldState = {
   selected: { apps: 0, categories: 0, webDomains: 0 },
 };
 
+const EMPTY_DIAG: Diagnostics = {
+  module: "—",
+  authorization: "notDetermined",
+  storage: "standard",
+  selected: { apps: 0, categories: 0, webDomains: 0 },
+  store: { apps: 0, webDomains: 0, categoriesSet: false, denyAppRemoval: false },
+  shieldFailed: false,
+};
+
 /** Bildschirmzeit-Zugriff für die eigene Person anfragen (.individual). */
 export async function requestScreenTimeAccess(): Promise<ShieldStatus> {
-  if (!M) return { status: "notDetermined" };
-  return M.requestAuthorization();
+  if (!M) return { status: "notDetermined", error: screenTimeUnavailableReason() ?? undefined };
+  try {
+    return await M.requestAuthorization();
+  } catch (e) {
+    return { status: "denied", error: e instanceof Error ? e.message : String(e) };
+  }
 }
 
 export async function screenTimeStatus(): Promise<ShieldStatus> {
-  if (!M) return { status: "notDetermined" };
-  return M.status();
+  if (!M) return { status: "notDetermined", error: screenTimeUnavailableReason() ?? undefined };
+  try {
+    return await M.status();
+  } catch (e) {
+    return { status: "notDetermined", error: e instanceof Error ? e.message : String(e) };
+  }
 }
 
 /** System-Picker: Apps/Kategorien/Webseiten auswählen (vollflächig). */
@@ -50,18 +79,18 @@ export async function pickAppsToBlock(): Promise<{
 }
 
 /** Sperre für die gesamte Auswahl anwenden (Apps + Kategorien + Webseiten). */
-export async function applyShield(): Promise<{ shield: string; apps?: number }> {
+export async function applyShield(): Promise<ShieldResult> {
   if (!M) return { shield: "unavailable" };
   return M.applyShield();
 }
 
-export async function clearShield(): Promise<{ shield: string }> {
+export async function clearShield(): Promise<ShieldResult> {
   if (!M) return { shield: "unavailable" };
   return M.clearShield();
 }
 
 /** Nur einzelne Apps der Auswahl sperren (Index-Liste). */
-export async function shieldApps(indexes: number[]): Promise<{ shield: string; apps?: number }> {
+export async function shieldApps(indexes: number[]): Promise<ShieldResult> {
   if (!M) return { shield: "unavailable" };
   return M.shieldApps(indexes);
 }
@@ -99,6 +128,37 @@ export async function selectedAppsOnly(): Promise<number> {
     return await M.selectedApps();
   } catch {
     return 0;
+  }
+}
+
+/** Vollständige Diagnose: Modul, Autorisierung, Speicherort, Auswahl, Store. */
+export async function shieldDiagnostics(): Promise<Diagnostics> {
+  if (!M) {
+    return { ...EMPTY_DIAG, module: screenTimeUnavailableReason() ?? "unbekannt" };
+  }
+  try {
+    return await M.diagnostics();
+  } catch (e) {
+    return { ...EMPTY_DIAG, module: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Löschschutz: verhindert das Löschen von Apps (nur mit Kind-/Family-Autorisierung wirksam). */
+export async function setDenyAppRemoval(enabled: boolean): Promise<{ requested: boolean; applied: boolean }> {
+  if (!M) return { requested: enabled, applied: false };
+  try {
+    return await M.setDenyAppRemoval(enabled);
+  } catch {
+    return { requested: enabled, applied: false };
+  }
+}
+
+export async function getDenyAppRemoval(): Promise<boolean> {
+  if (!M) return false;
+  try {
+    return await M.getDenyAppRemoval();
+  } catch {
+    return false;
   }
 }
 

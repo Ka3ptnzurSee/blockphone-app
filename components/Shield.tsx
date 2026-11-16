@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { ALL_PLATFORMS, PLATFORM_DOMAINS } from "../lib/dnsBlocklist";
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { ALL_PLATFORMS, PLATFORM_DOMAINS, normalizeCustomDomain } from "../lib/dnsBlocklist";
 import type { Platform } from "../lib/browser";
 import { dnsBlockingAvailable, dnsBlockingStatus, type DnsMode } from "../lib/vpn";
 import { applyDnsSettings, loadDnsSettings, saveDnsSettings, stopDns } from "../lib/dnsSettings";
@@ -46,6 +54,9 @@ export default function Shield() {
   const [mode, setMode] = useState<DnsMode>("blocklist");
   // Werbe-/Tracker-Domains zusätzlich blocken (unabhängig von den Plattformen).
   const [ads, setAds] = useState(true);
+  // Eigene Domains ("add block") — zusätzlich zu den Plattform-Domains.
+  const [custom, setCustom] = useState<string[]>([]);
+  const [domainInput, setDomainInput] = useState("");
 
   async function refresh() {
     try {
@@ -65,6 +76,7 @@ export default function Shield() {
       setSelected(settings.platforms);
       setMode(settings.mode);
       setAds(settings.ads);
+      setCustom(settings.custom);
     })();
   }, []);
 
@@ -72,14 +84,14 @@ export default function Shield() {
     if (busy || next === mode) return;
     setMode(next);
     try {
-      await saveDnsSettings({ platforms: selected, mode: next, ads });
+      await saveDnsSettings({ platforms: selected, mode: next, ads, custom });
     } catch {
       /* best effort */
     }
     // Laufenden Tunnel sofort umstellen.
     if (connected) {
       try {
-        await applyDnsSettings({ platforms: selected, mode: next, ads });
+        await applyDnsSettings({ platforms: selected, mode: next, ads, custom });
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       }
@@ -92,14 +104,14 @@ export default function Shield() {
     const next = !ads;
     setAds(next);
     try {
-      await saveDnsSettings({ platforms: selected, mode, ads: next });
+      await saveDnsSettings({ platforms: selected, mode, ads: next, custom });
     } catch {
       /* best effort */
     }
     if (connected) {
       try {
-        if (mode === "blocklist" && selected.length === 0 && !next) await stopDns();
-        else await applyDnsSettings({ platforms: selected, mode, ads: next });
+        if (mode === "blocklist" && selected.length === 0 && !next && custom.length === 0) await stopDns();
+        else await applyDnsSettings({ platforms: selected, mode, ads: next, custom });
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       }
@@ -111,21 +123,68 @@ export default function Shield() {
     const next = selected.includes(p) ? selected.filter((x) => x !== p) : [...selected, p];
     setSelected(next);
     try {
-      await saveDnsSettings({ platforms: next, mode, ads });
+      await saveDnsSettings({ platforms: next, mode, ads, custom });
     } catch {
       /* best effort */
     }
     // Laufenden Tunnel sofort mit der neuen Liste versorgen.
-    if (connected && (next.length > 0 || ads)) {
+    if (connected && (next.length > 0 || ads || custom.length > 0)) {
       try {
-        await applyDnsSettings({ platforms: next, mode, ads });
+        await applyDnsSettings({ platforms: next, mode, ads, custom });
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       }
     }
   }
 
-  const domainCount = selected.reduce((n, p) => n + PLATFORM_DOMAINS[p].length, 0);
+  /** Eigene Domain hinzufügen ("add block"). */
+  async function addDomain() {
+    const clean = normalizeCustomDomain(domainInput);
+    if (!clean) {
+      setError(`"${domainInput}" ist keine Domain — z. B. tiktok.com`);
+      return;
+    }
+    if (custom.includes(clean)) {
+      setError(`${clean} ist schon in der Liste.`);
+      setDomainInput("");
+      return;
+    }
+    const next = [...custom, clean];
+    setCustom(next);
+    setDomainInput("");
+    setError(null);
+    try {
+      await saveDnsSettings({ platforms: selected, mode, ads, custom: next });
+    } catch {
+      /* best effort */
+    }
+    if (connected) {
+      try {
+        await applyDnsSettings({ platforms: selected, mode, ads, custom: next });
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    }
+  }
+
+  async function removeDomain(d: string) {
+    const next = custom.filter((x) => x !== d);
+    setCustom(next);
+    try {
+      await saveDnsSettings({ platforms: selected, mode, ads, custom: next });
+    } catch {
+      /* best effort */
+    }
+    if (connected) {
+      try {
+        await applyDnsSettings({ platforms: selected, mode, ads, custom: next });
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    }
+  }
+
+  const domainCount = selected.reduce((n, p) => n + PLATFORM_DOMAINS[p].length, 0) + custom.length;
 
   // Poll-Schleife darf nach dem Unmount nichts mehr setzen.
   const mountedRef = useRef(true);
@@ -146,11 +205,11 @@ export default function Shield() {
       if (connected) {
         await stopDns();
       } else {
-        if (selected.length === 0 && !ads && mode === "blocklist") {
-          setError("Nichts ausgewählt — Plattformen oder Werbeblocker einschalten.");
+        if (selected.length === 0 && !ads && custom.length === 0 && mode === "blocklist") {
+          setError("Nichts ausgewählt — Plattformen, eigene Domains oder Werbeblocker einschalten.");
           return;
         }
-        await applyDnsSettings({ platforms: selected, mode, ads });
+        await applyDnsSettings({ platforms: selected, mode, ads, custom });
       }
       // Der Tunnel braucht einen Moment (iOS-Dialog + Verbindungsaufbau) →
       // ein paar Mal nachfassen, statt sofort "INAKTIV" anzuzeigen.
@@ -261,6 +320,46 @@ export default function Shield() {
         </Pressable>
       </View>
 
+      {/* Eigene Domains — "add block" */}
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>EIGENE DOMAINS</Text>
+        <Text style={styles.cardBody}>
+          Zusätzlich sperren, was nicht in den Plattform-Listen steht (z. B. tiktok.com,
+          twitch.tv, ein Spiele-Server). Gilt systemweit per DNS.
+        </Text>
+        <View style={styles.inputRow}>
+          <TextInput
+            value={domainInput}
+            onChangeText={setDomainInput}
+            onSubmitEditing={() => void addDomain()}
+            placeholder="z. B. tiktok.com"
+            placeholderTextColor={C.text3}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+            returnKeyType="done"
+            style={styles.input}
+          />
+          <Pressable onPress={() => void addDomain()} disabled={!available || busy} style={styles.addBtn}>
+            <Text style={styles.addBtnText}>+ BLOCK</Text>
+          </Pressable>
+        </View>
+        {custom.length === 0 ? (
+          <Text style={styles.meta}>Noch keine eigene Domain.</Text>
+        ) : (
+          <View style={styles.chips}>
+            {custom.map((d) => (
+              <Pressable key={d} onPress={() => void removeDomain(d)} style={[styles.chip, styles.chipOn]}>
+                <Text style={[styles.chipText, styles.chipTextOn]}>{d} ✕</Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
+        {custom.length > 0 ? (
+          <Text style={styles.meta}>{custom.length} eigene Domains — Tippen entfernt.</Text>
+        ) : null}
+      </View>
+
       <Text style={styles.hint}>
         Beim ersten Aktivieren fragt iOS nach der VPN-Erlaubnis. Der Tunnel leitet nur
         DNS-Anfragen um — der restliche Datenverkehr läuft normal.
@@ -278,6 +377,33 @@ const styles = StyleSheet.create({
     color: C.text2,
     letterSpacing: 3,
     marginBottom: 4,
+  },
+  inputRow: { flexDirection: "row", gap: 8, alignItems: "center" },
+  input: {
+    flex: 1,
+    backgroundColor: C.surface2,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: C.text,
+    fontFamily: "SpaceGrotesk",
+    fontSize: 14,
+  },
+  addBtn: {
+    backgroundColor: C.surface2,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  addBtnText: {
+    fontFamily: "Ndot57",
+    fontSize: 12,
+    color: C.text,
+    letterSpacing: 2,
   },
   hint: {
     fontFamily: "SpaceGrotesk",

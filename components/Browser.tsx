@@ -855,7 +855,7 @@ export default function Browser({ onExit, active = true, mini = false, onMini }:
             ) : null}
 
             {access.reason === "hardlock" ? (
-              <Text style={styles.lockSub}>EINSTELLUNGEN → MEHR → COMMIT</Text>
+              <Text style={styles.lockSub}>SETUP → COMMIT</Text>
             ) : null}
 
             <Pressable onPress={onExit} style={styles.lockExit}>

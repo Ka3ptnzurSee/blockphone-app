@@ -22,10 +22,12 @@ import AppBlocker from "./components/AppBlocker";
 import CommitmentSettings from "./components/CommitmentSettings";
 import InterventionGate from "./components/InterventionGate";
 import ScheduleSettings from "./components/ScheduleSettings";
+import GateSettings from "./components/GateSettings";
 import { loadGamification, type GamificationInfo } from "./lib/gamificationStore";
 import { hasPin, loadStreak, type StreakInfo } from "./lib/streakStore";
 import { withinReInterventionWindow } from "./lib/interventionStore";
 import { markAppUnlocked, withinUnlockGrace } from "./lib/unlockGate";
+import { loadGateSettings } from "./lib/gateSettings";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Nothing-Design: monochrome Palette (keine Farbakzente, kein Gradient)
@@ -94,9 +96,19 @@ function UnlockFlow({ onUnlock }: { onUnlock: (fresh: boolean) => void }) {
           onUnlock(false);
           return;
         }
-        const [pinned, inWindow] = await Promise.all([hasPin(), withinReInterventionWindow()]);
-        // Erster Start (noch kein PIN) oder gerade entsperrt → direkt PIN.
-        setStep(!pinned || inWindow ? "pin" : "intervention");
+        const [pinned, inWindow, gates] = await Promise.all([
+          hasPin(),
+          withinReInterventionWindow(),
+          loadGateSettings(),
+        ]);
+        // Harte Regeln sind optional: ohne PIN-Pflicht geht es direkt rein,
+        // ohne Interventions-Pflicht direkt zum PIN (bzw. rein).
+        if (!gates.pinRequired) {
+          onUnlock(true);
+          return;
+        }
+        // Erster Start (noch kein PIN), Intervention aus oder gerade entsperrt → PIN.
+        setStep(!pinned || inWindow || !gates.interventionRequired ? "pin" : "intervention");
       } catch {
         // Speicher-Lesefehler: nicht im ewigen Spinner hängen bleiben — PIN-Gate
         // ist immer bedienbar (ohne gesetzten PIN öffnet es direkt).
@@ -129,7 +141,11 @@ const MINI_MIN_Y = 26 + MINI_PAD;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), Math.max(lo, hi));
 
-type TabKey = "glyph" | "browser" | "shield" | "apps" | "mehr";
+// Build 148: EIN Einstellungs-Tab (SETUP) statt "APPS" + "MEHR" mit Unter-Tabs
+// über die ganze App verteilt. SPERREN bündelt die beiden Sperr-Systeme.
+type TabKey = "glyph" | "browser" | "sperren" | "setup";
+type SperrenSub = "apps" | "domains";
+type SetupSub = "limits" | "zeit" | "commit" | "start";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // App
@@ -143,7 +159,8 @@ export default function App() {
   });
 
   const [tab, setTab] = useState<TabKey>("glyph");
-  const [mehrSub, setMehrSub] = useState<"limits" | "commitment" | "schedule">("limits");
+  const [sperrenSub, setSperrenSub] = useState<SperrenSub>("apps");
+  const [setupSub, setSetupSub] = useState<SetupSub>("limits");
   const [now, setNow] = useState(() => new Date());
   const [unlocked, setUnlocked] = useState(false);
   // Browser-Layer bleibt nach dem ersten Öffnen gemountet (PiP/Video läuft weiter).
@@ -267,9 +284,8 @@ export default function App() {
           [
             ["glyph", "GLYPH"],
             ["browser", "BROWSER"],
-            ["shield", "SHIELD"],
-            ["apps", "APPS"],
-            ["mehr", "MEHR"],
+            ["sperren", "SPERREN"],
+            ["setup", "SETUP"],
           ] as const
         ).map(([key, label]) => (
           <Pressable key={key} onPress={() => setTab(key)} style={styles.tab}>
@@ -296,34 +312,54 @@ export default function App() {
       )}
 
 
-      {tab === "shield" && <Shield />}
+      {tab === "sperren" && (
+        <View style={styles.mehrRoot}>
+          <View style={styles.mehrTabs}>
+            {(
+              [
+                ["apps", "APPS"],
+                ["domains", "DOMAINS"],
+              ] as const
+            ).map(([key, label]) => (
+              <Pressable key={key} onPress={() => setSperrenSub(key)} style={styles.mehrTab}>
+                <Text style={[styles.mehrTabText, sperrenSub === key && styles.mehrTabTextActive]}>
+                  {label}
+                </Text>
+                {sperrenSub === key && <View style={styles.tabDot} />}
+              </Pressable>
+            ))}
+          </View>
+          {sperrenSub === "apps" ? <AppBlocker /> : <Shield />}
+        </View>
+      )}
 
-      {tab === "apps" && <AppBlocker />}
-
-      {tab === "mehr" && (
+      {tab === "setup" && (
         <View style={styles.mehrRoot}>
           <View style={styles.mehrTabs}>
             {(
               [
                 ["limits", "LIMITS"],
-                ["commitment", "COMMIT"],
-                ["schedule", "ZEIT"],
+                ["zeit", "ZEIT"],
+                ["commit", "COMMIT"],
+                ["start", "APP-START"],
               ] as const
             ).map(([key, label]) => (
-              <Pressable key={key} onPress={() => setMehrSub(key)} style={styles.mehrTab}>
-                <Text style={[styles.mehrTabText, mehrSub === key && styles.mehrTabTextActive]}>
+              <Pressable key={key} onPress={() => setSetupSub(key)} style={styles.mehrTab}>
+                <Text style={[styles.mehrTabText, setupSub === key && styles.mehrTabTextActive]}>
                   {label}
                 </Text>
-                {mehrSub === key && <View style={styles.tabDot} />}
+                {setupSub === key && <View style={styles.tabDot} />}
               </Pressable>
             ))}
           </View>
-          {mehrSub === "limits" ? (
+          {setupSub === "limits" ? (
             <LimitSettings />
-          ) : mehrSub === "commitment" ? (
+          ) : setupSub === "zeit" ? (
+            <ScheduleSettings />
+          ) : setupSub === "commit" ? (
             <CommitmentSettings />
           ) : (
-            <ScheduleSettings />
+            <GateSettings />
           )}
           {/* Damit man am Gerät sofort sieht, welcher Build läuft. */}
           <Text style={styles.versionFoot}>
@@ -376,7 +412,7 @@ export default function App() {
           <Pressable
             onPress={() => {
               setMini(false);
-              setTab("shield");
+              setTab("sperren");
             }}
             style={[styles.miniClose, { left: miniPos.x + MINI_W - 26, top: miniPos.y - 26 }]}
           >

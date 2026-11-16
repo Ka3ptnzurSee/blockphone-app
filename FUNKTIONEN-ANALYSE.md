@@ -1,4 +1,4 @@
-# Blockphone — vollständige Funktions-Analyse (Stand Build 143, 15.11.2026)
+# Blockphone — vollständige Funktions-Analyse (Stand Build 148, 16.11.2026)
 
 Diese Datei beantwortet: **was existiert, was davon wird wirklich durchgesetzt, und wo im Code.**
 Legende: ✅ läuft · 🟡 teilweise / nur in bestimmten Fällen · ❌ vorhanden, aber nicht verdrahtet.
@@ -42,7 +42,7 @@ Legende: ✅ läuft · 🟡 teilweise / nur in bestimmten Fällen · ❌ vorhand
 
 ## 3. App-Sperre (Screen Time)
 
-* Picker: `shield/AppTarget/ScreenTimeShield.swift` → `presentPicker` präsentiert
+* Picker: `modules/screentime-shield/ios/ScreenTimeShieldModule.swift` → `presentPicker` präsentiert
   `FamilyActivityPicker` **vollflächig** (`modalPresentationStyle = .fullScreen`,
   eigener `UIHostingController` ohne Höhenbegrenzung) — das war der „App wird nicht
   angezeigt"-Fehler. Auswahl wird als `FamilyActivitySelection` (PropertyList)
@@ -108,3 +108,73 @@ Xcode-Projekt (kein Target, keine Entitlements). Sie sind die Vorlage für §6.
 
 `npm test` = 190 Tests (u. a. `lib/appLimits.test.ts` 12, `lib/adBlocklist.test.ts` 3),
 `npx tsc --noEmit` grün, iOS-Build 143 archive + TestFlight-Upload erfolgreich.
+
+
+## 9. Build 148 — was repariert wurde und warum
+
+Ausgangslage: Per meldete „App an sich läuft, aber echte Apps werden nicht gesperrt,
+Add-Block geht nicht, alles ist über zu viele Einstellungs-Tabs verteilt".
+
+### 9.1 Warum die App-Sperre nicht griff (Root Cause)
+
+| Befund | Beleg | Wirkung |
+|---|---|---|
+| Die Screen-Time-Brücke war ein **Legacy-RCT-Modul** (`RCT_EXTERN_MODULE`), aus JS über `NativeModules.ScreenTimeShield` geholt | `shield/AppTarget/ScreenTimeShieldBridge.m` (entfernt in 148) | In RN 0.86 / Expo SDK 57 kommt dort `undefined` an → **jeder** Aufruf (`applyShield`, `presentPicker`, `shieldApps`) lief in den `if (!M)`-Zweig und gab still `{shield:"unavailable"}` zurück. Kein Fehler, keine Meldung, keine Sperre. |
+| Auswahl wurde in `UserDefaults(suiteName: "group.com.meister.blockphone")` gespeichert | `ScreenTimeShield.swift:41` (alt) | Das Profil (`credentials/appstore_blockphone_140.mobileprovision`) hat **leere** `com.apple.security.application-groups` (`APP_GROUP` wird im CI nie gesetzt → `plugins/withScreenTimeShield.js:13`). Ohne Entitlement liefert `containerURL(forSecurityApplicationGroupIdentifier:)` nil → Schreibzugriffe verschwinden, Auswahl ist nach dem Neustart leer → `applyShield()` meldet `no_selection`. |
+| Fehler wurden in der UI als Erfolg gemeldet | `AppBlocker.tsx` (alt): `await syncShield(...)` ohne Ergebnisprüfung, danach „App-Sperre aktiv" | Schalter stand auf AUS, Meldung sagte „aktiv". |
+| Wartezeit war Pflicht (min. 1 h) | `lib/appLimits.ts:21` (alt) `MIN_DELAY_H = 1` | Ein Antrag auf „App sperren" wurde erst 12–48 h später wirksam — gefühlt „geht nicht". |
+
+Fix in 148:
+* `modules/screentime-shield/` — die Sperre ist jetzt ein **Expo-Modul**
+  (`requireOptionalNativeModule("ScreenTimeShield")`), dieselbe Technik wie das
+  funktionierende `VpnManager`-Modul.
+* Speicher: App Group nur, wenn `containerURL(...)` sie wirklich liefert —
+  sonst `UserDefaults.standard` (Auswahl überlebt den Neustart auch ohne Group).
+* `applyShield`/`shieldApps` lesen den `ManagedSettingsStore` **zurück** und
+  liefern `on` / `not_applied` / `no_selection`. `not_applied` wird in der App
+  als Warnkarte gezeigt („iOS hat die Sperre nicht übernommen").
+* Neue Karte **DIAGNOSE** (SPERREN → APPS): Modul, Autorisierung, Speicherort,
+  Auswahl, echter Store-Inhalt, letzter Fehlschlag.
+* Wartezeit-Stufen `0 / 12 / 24 / 48 h` — `0` = **SOFORT** (`isInstant()`).
+
+### 9.2 „Add Block" — eigene Domains
+
+Vorher gab es nur die 5 festen Plattformen. Neu: `lib/dnsBlocklist.ts`
+`normalizeCustomDomain()` + `custom[]` in `DnsSettings`; UI in SPERREN → DOMAINS
+(„EIGENE DOMAINS" mit Eingabefeld `+ BLOCK`, Tippen auf einen Chip entfernt).
+Die Liste geht denselben Weg wie die Plattform-Domains in den Tunnel
+(`providerConfiguration.blocklist`).
+
+### 9.3 Einstellungen zusammengelegt
+
+Vorher 5 Tabs + 3 Unter-Tabs (`APPS`, `SHIELD`, `MEHR → LIMITS/COMMIT/ZEIT`).
+Jetzt 4 Tabs: **GLYPH · BROWSER · SPERREN · SETUP**
+* SPERREN → APPS / DOMAINS (die beiden Sperr-Systeme)
+* SETUP → LIMITS / ZEIT / COMMIT / APP-START (alle Einstellungen an einem Ort)
+
+### 9.4 Harte Regeln sind optional
+
+`lib/gateSettings.ts` + `components/GateSettings.tsx` (SETUP → APP-START):
+* **PIN verlangen** an/aus (vorher Pflicht beim ersten Start)
+* **Intervention** an/aus (vorher immer Atmen/Mathe/Journal vor dem Öffnen)
+* **Wartezeit** 0/12/24/48 h (vorher Pflicht-Delay)
+* Commitment/Vertrag war schon freiwillig.
+
+### 9.5 Löschschutz und Family Sharing (Antwort auf Pers Frage)
+
+`denyAppRemoval` ist in ManagedSettings vorhanden (`ManagedSettingsStore.application.denyAppRemoval`,
+Vorlage lag ungenutzt in `native/ios/ScreenTimeManager.swift:63`). Es ist jetzt als
+Schalter **LÖSCHSCHUTZ** in SPERREN → APPS verdrahtet (`setDenyAppRemoval`), inklusive
+Rücklesen des echten Werts.
+
+Ehrlich dazu:
+* Wirksam wird es praktisch nur mit **Kind-/Family-Autorisierung**
+  (`FamilyControls`, AuthorizationCenter `.child`) — also einem Gerät, das über
+  Family Sharing als Kind-Gerät verwaltet wird. Bei `.individual` (eigenes Gerät,
+  das nutzt die App) verweigert iOS die Einstellung; der Schalter springt dann
+  zurück und die App sagt das.
+* Der sichere Weg auf dem **eigenen** Gerät: Einstellungen → Bildschirmzeit →
+  Beschränkungen → „Apps löschen" aus, mit einem Bildschirmzeit-Code, den eine
+  **andere** Person kennt. Family Sharing allein verhindert nichts.
+* Keine App kann ihre eigene Löschung verhindern. Wer den Gerätecode hat, kann
+  immer löschen (dann sind auch die Sperren weg).

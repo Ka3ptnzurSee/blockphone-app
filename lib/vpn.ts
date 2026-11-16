@@ -49,9 +49,10 @@ export async function enableDnsBlocking(
   mode: DnsMode = "blocklist",
   allowlist: string[] = [],
   ads = false,
+  custom: readonly string[] = [],
 ): Promise<boolean> {
   if (!VpnManager) throw new Error("VpnManager-Modul fehlt — nur im nativen Build verfügbar");
-  const domains = buildDnsBlocklist(platforms);
+  const domains = buildDnsBlocklist(platforms, custom);
   // "Internet aus" braucht keine Plattform-Auswahl — alles außer der Allowlist
   // wird gesperrt. Werbeblocker allein reicht ebenfalls als Grund für den Tunnel.
   if (mode === "blocklist" && domains.length === 0 && !ads) return VpnManager.stop();

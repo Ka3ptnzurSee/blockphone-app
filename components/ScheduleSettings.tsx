@@ -108,8 +108,8 @@ export default function ScheduleSettings() {
           <Text style={styles.lockTitle}>EINSTELLUNGEN GESPERRT</Text>
           <Text style={styles.lockBody}>
             {lock.canRecoverNow
-              ? "Recovery abgelaufen — Freigabe jetzt in MEHR → COMMIT möglich."
-              : `Zeitfenster gesperrt. Recovery in ${formatDurationMs(lock.recoveryLeftMs)} (MEHR → COMMIT).`}
+              ? "Recovery abgelaufen — Freigabe jetzt in SETUP → COMMIT möglich."
+              : `Zeitfenster gesperrt. Recovery in ${formatDurationMs(lock.recoveryLeftMs)} (SETUP → COMMIT).`}
           </Text>
         </View>
       ) : null}

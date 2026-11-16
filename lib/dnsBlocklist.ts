@@ -55,15 +55,36 @@ export const ALL_PLATFORMS: Platform[] = Object.keys(PLATFORM_DOMAINS) as Platfo
  * Union der Domains für die gewählten Plattformen — normalisiert (lowercase,
  * getrimmt, Rand-Punkte entfernt), dedupliziert, sortiert. Leere Auswahl → [].
  */
-export function buildDnsBlocklist(platforms: readonly Platform[]): string[] {
+export function buildDnsBlocklist(
+  platforms: readonly Platform[],
+  custom: readonly string[] = [],
+): string[] {
   const set = new Set<string>();
+  const add = (d: string) => {
+    const clean = d.toLowerCase().trim().replace(/^\.+|\.+$/g, "");
+    if (clean) set.add(clean);
+  };
   for (const p of platforms) {
-    for (const d of PLATFORM_DOMAINS[p] ?? []) {
-      const clean = d.toLowerCase().trim().replace(/^\.+|\.+$/g, "");
-      if (clean) set.add(clean);
-    }
+    for (const d of PLATFORM_DOMAINS[p] ?? []) add(d);
   }
+  // Eigene Domains ("add block"): Nutzer entscheidet, was zusätzlich gesperrt wird.
+  for (const d of custom) add(d);
   return [...set].sort();
+}
+
+/**
+ * Eigene Domain-Eingabe prüfen und normalisieren ("https://www.TikTok.com/x" →
+ * "tiktok.com"). Gibt null zurück, wenn nichts Brauchbares übrig bleibt.
+ */
+export function normalizeCustomDomain(input: string): string | null {
+  const raw = String(input ?? "").trim().toLowerCase();
+  if (!raw) return null;
+  const withoutScheme = raw.replace(/^[a-z]+:\/\//, "").replace(/^www\./, "");
+  const host = withoutScheme.split(/[/?#\s]/)[0].replace(/^\.+|\.+$/g, "");
+  // Nur echte Hostnamen (mind. eine Punkt-Struktur), keine Leerzeichen/Sonderzeichen.
+  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(host)) return null;
+  if (host.length > 253) return null;
+  return host;
 }
 
 /** Default: alle Plattformen systemweit blocken. */
