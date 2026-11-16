@@ -132,7 +132,7 @@ public class ScreenTimeShieldModule: Module {
       store.shield.applications = apps.isEmpty ? nil : apps
       store.shield.applicationCategories = cats.isEmpty ? nil : .specific(cats)
       store.shield.webDomains = webs.isEmpty ? nil : webs
-      Self.setValue(cats.count, forKey: catsKey)
+      Self.setValue(cats.count, forKey: Self.catsKey)
       let want = apps.count + webs.count + cats.count
       let got = (store.shield.applications?.count ?? 0)
         + (store.shield.webDomains?.count ?? 0)
@@ -152,7 +152,7 @@ public class ScreenTimeShieldModule: Module {
       store.shield.applications = nil
       store.shield.applicationCategories = nil
       store.shield.webDomains = nil
-      Self.setValue(0, forKey: catsKey)
+      Self.setValue(0, forKey: Self.catsKey)
       Self.setValue(false, forKey: "shieldFailed")
       return ["shield": "off"]
     }
@@ -239,11 +239,11 @@ public class ScreenTimeShieldModule: Module {
     // MARK: Persistenz für die Monitor-Extension
 
     AsyncFunction("setLimits") { (json: String) in
-      Self.setValue(json, forKey: limitsKey)
+      Self.setValue(json, forKey: Self.limitsKey)
     }
 
     AsyncFunction("getLimits") { () -> String in
-      (Self.value(forKey: limitsKey) as? String) ?? "[]"
+      (Self.value(forKey: Self.limitsKey) as? String) ?? "[]"
     }
   }
 
