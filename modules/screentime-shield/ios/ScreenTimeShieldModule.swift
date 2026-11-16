@@ -72,10 +72,13 @@ public class ScreenTimeShieldModule: Module {
       }
     }
 
-    AsyncFunction("status") { () -> [String: Any] in
-      let s = AuthorizationCenter.shared.authorizationStatus
-      let name = s == .approved ? "approved" : (s == .denied ? "denied" : "notDetermined")
-      return ["status": name]
+    // FamilyControls verlangt den Main-Thread für authorizationStatus.
+    AsyncFunction("status") { () async -> [String: Any] in
+      await MainActor.run {
+        let s = AuthorizationCenter.shared.authorizationStatus
+        let name = s == .approved ? "approved" : (s == .denied ? "denied" : "notDetermined")
+        return ["status": name]
+      }
     }
 
     // MARK: Picker
@@ -210,10 +213,10 @@ public class ScreenTimeShieldModule: Module {
 
     // MARK: Diagnose
 
-    AsyncFunction("diagnostics") { () -> [String: Any] in
+    AsyncFunction("diagnostics") { () async -> [String: Any] in
       let sel = Self.loadSelection()
       let store = ManagedSettingsStore()
-      let auth = AuthorizationCenter.shared.authorizationStatus
+      let auth = await MainActor.run { AuthorizationCenter.shared.authorizationStatus }
       return [
         "module": "expo",
         "authorization": auth == .approved ? "approved" : (auth == .denied ? "denied" : "notDetermined"),
