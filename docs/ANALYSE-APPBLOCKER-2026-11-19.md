@@ -194,3 +194,62 @@ Gate danach: **200/200 Tests**, `tsc --noEmit` 0 Fehler, `check-targets` OK
 3. Vor dem Scharfschalten der Limits ehrlich bleiben: `opensPerDay` und
    `pauseSeconds` haben weiterhin keine Datenquelle (dafür bräuchte es eine
    `DeviceActivityReport`-Extension); Tages-/Wochenlimit sind mit dieser Änderung gedeckt.
+
+
+---
+
+## Nachtrag 19.11.2026 — was jetzt wirklich gebaut ist (Build 149)
+
+### CI, die Swift-Fehler vorher findet
+`.github/workflows/swift-compile-check.yml` baut alle Targets mit
+`CODE_SIGNING_ALLOWED=NO` und weist die entstandenen Bundles nach. Ohne diesen
+Job fällt ein Swift-Fehler erst im ~30-Minuten-Release-Build auf (genau das war
+Build 148: „kompilierte nicht“). Gemessener Lauf `44545377912`:
+
+```
+OK ShieldConfiguration.appex gebaut
+OK ShieldAction.appex gebaut
+OK DeviceActivityMonitor.appex gebaut
+OK PacketTunnelProvider.appex gebaut
+```
+
+Wichtig für den Job: `runs-on: macos-latest` **und** die neueste Xcode wählen —
+RN 0.86 zieht SPM-Pakete, die Swift-Tools 6.2 verlangen; mit dem
+Standard-Xcode 16.4 (Swift 6.1) bricht schon die Paketauflösung ab
+(`package 'apple' is using Swift tools version 6.2.0 but the installed version is 6.1.0`).
+
+### Drei echte API-Fehler, die dabei auffielen (alle behoben)
+1. `ShieldConfigurationDataSource` und `ShieldActionDelegate` sind **Klassen**,
+   keine Protokolle → `final class X: NSObject, ShieldConfigurationDataSource`
+   ergibt `error: multiple inheritance from classes 'NSObject' and …`.
+   Richtig: nur die Klasse beerben, Methoden mit `override`.
+2. `ShieldActionDelegate.handle` nimmt **Token-Typen**
+   (`ApplicationToken`, `WebDomainToken`, `ActivityCategoryToken`) — nicht
+   `Application`/`WebDomain`. Vorher: „method does not override any method from
+   its superclass“.
+3. `DateComponents` Memberwise-Init ist **reihenfolgegebunden**:
+   `DateComponents(hour: 0, minute: 0, weekday: 2)`, nicht `(weekday:…, hour:…)`.
+
+### Zeitlimits: Tages- und Wochenlimit sind jetzt getrennt
+Erste Fassung hätte beim Tageswechsel auch eine erreichte **Wochen**-Sperre
+aufgehoben (beide Events hießen `app<index>`, und `intervalDidEnd` leerte alles).
+
+Jetzt:
+- Events heißen `d<index>` (Tageslimit) bzw. `w<index>` (Wochenlimit).
+- Die Extension führt in der App Group die Merkliste `limitsShielded`
+  (`{"3":["d","w"]}`) und setzt den Limit-Store bei jeder Änderung **exakt** auf
+  diese Liste (`applyShields`), statt additiv zu sperren — aufgehobene Sperren
+  verschwinden dadurch wirklich.
+- `intervalDidEnd` für `blockphone.daily` entfernt nur die `d`-Einträge,
+  für `blockphone.weekly` (und unbekannte Activities) alles.
+- `clearLimitShield()` in der App leert zusätzlich die Merkliste, sonst stellt
+  die Extension nach dem Entfernen aller Limits alte Sperren wieder her.
+
+### Stand der Auslieferung
+- Build **149** (ASC `VALID`) enthält weiterhin nur `packettunnel`: die drei
+  Extension-Targets brauchen `com.apple.developer.family-controls` im Profil,
+  das kann nur das Developer-Portal setzen (siehe
+  `docs/PORTAL-SCHRITTE-EXTENSIONS.md`). `node scripts/asc-ext-profiles.mjs`
+  liest die echten Entitlements aus den Profilen und zeigt die Lücke.
+- Gate: `npm test` 200/200, `tsc --noEmit` 0 Fehler, `check-targets: OK`,
+  Swift-Kompilier-Job grün.
