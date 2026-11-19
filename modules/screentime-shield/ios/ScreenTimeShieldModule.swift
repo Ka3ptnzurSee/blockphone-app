@@ -164,7 +164,9 @@ public class ScreenTimeShieldModule: Module {
     /// Teilmenge der Auswahl sperren (Index-Liste). Leere Liste = ganze Auswahl.
     AsyncFunction("shieldApps") { (indexes: [Int]) -> [String: Any] in
       guard let sel = Self.loadSelection() else { return ["shield": "no_selection"] }
-      let all = Array(sel.applicationTokens)
+      // Stabile Reihenfolge — sonst meint derselbe Index nach einem Neustart
+      // eine andere App (Set-Iteration ist prozessabhängig).
+      let all = Self.orderedAppTokens(sel)
       let wanted = indexes.filter { $0 >= 0 && $0 < all.count }
       let tokens = wanted.isEmpty ? Set(all) : Set(wanted.map { all[$0] })
       let store = ManagedSettingsStore()
@@ -300,6 +302,23 @@ public class ScreenTimeShieldModule: Module {
     return (try? JSONDecoder().decode([LimitRule].self, from: data)) ?? []
   }
 
+  /// Stabile Kennung eines App-Tokens.
+  ///
+  /// `FamilyActivitySelection.applicationTokens` ist ein **Set**: Die
+  /// Iterationsreihenfolge ist pro Prozess zufällig. Indizes (JS-Listen,
+  /// DeviceActivity-Events) zeigen damit nach einem Neustart bzw. in der
+  /// Monitor-Extension auf andere Apps — im schlimmsten Fall wird die falsche
+  /// App gesperrt. Deshalb wird überall nach diesem Schlüssel sortiert.
+  static func stableKey(_ token: ApplicationToken) -> String {
+    guard let data = try? PropertyListEncoder().encode(token) else { return "" }
+    return data.base64EncodedString()
+  }
+
+  /// Auswahl als Liste in stabiler, prozessunabhängiger Reihenfolge.
+  static func orderedAppTokens(_ selection: FamilyActivitySelection) -> [ApplicationToken] {
+    selection.applicationTokens.sorted { stableKey($0) < stableKey($1) }
+  }
+
   static func clearLimitShield() {
     let store = ManagedSettingsStore(named: limitStoreName)
     store.shield.applications = nil
@@ -320,7 +339,7 @@ public class ScreenTimeShieldModule: Module {
     guard let selection = loadSelection() else {
       return ["monitoring": "no_selection", "started": [], "group": groupAvailable]
     }
-    let tokens = Array(selection.applicationTokens)
+    let tokens = Self.orderedAppTokens(selection)
     guard !tokens.isEmpty else {
       return ["monitoring": "no_selection", "started": [], "group": groupAvailable]
     }
@@ -347,14 +366,20 @@ public class ScreenTimeShieldModule: Module {
     }
 
     var started: [String] = []
+    var errors: [String] = []
     if !daily.isEmpty {
       let schedule = DeviceActivitySchedule(
         intervalStart: DateComponents(hour: 0, minute: 0),
         intervalEnd: DateComponents(hour: 23, minute: 59),
         repeats: true
       )
-      if (try? center.startMonitoring(dailyActivity, during: schedule, events: daily)) != nil {
+      // `try?` hätte einen Fehler verschluckt: die UI meldete „Limit aktiv",
+      // während iOS nichts überwacht hat. Fehlertext zurückgeben statt hoffen.
+      do {
+        try center.startMonitoring(dailyActivity, during: schedule, events: daily)
         started.append(dailyActivity.rawValue)
+      } catch {
+        errors.append("daily: \(error.localizedDescription)")
       }
     }
     if !weekly.isEmpty {
@@ -365,8 +390,11 @@ public class ScreenTimeShieldModule: Module {
         intervalEnd: DateComponents(hour: 23, minute: 59, weekday: 1),
         repeats: true
       )
-      if (try? center.startMonitoring(weeklyActivity, during: schedule, events: weekly)) != nil {
+      do {
+        try center.startMonitoring(weeklyActivity, during: schedule, events: weekly)
         started.append(weeklyActivity.rawValue)
+      } catch {
+        errors.append("weekly: \(error.localizedDescription)")
       }
     }
 
@@ -378,6 +406,7 @@ public class ScreenTimeShieldModule: Module {
       "started": started,
       "daily": daily.count,
       "weekly": weekly.count,
+      "errors": errors,
       "group": groupAvailable,
     ]
   }

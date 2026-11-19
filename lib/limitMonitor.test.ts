@@ -8,6 +8,7 @@ import {
   buildMonitorPayload,
   buildMonitorRules,
   hasMonitorRules,
+  limitsStartProblem,
 } from "./limitMonitor";
 
 function rule(index: number, patch: Partial<AppRule> = {}): AppRule {
@@ -66,4 +67,21 @@ test("Payload ist sortiertes JSON für Swift", () => {
     rule(1, { dailySeconds: 3600 }),
     rule(0, { weeklySeconds: 600 }),
   ]));
+});
+
+test("limitsStartProblem: laufende Ueberwachung ist kein Problem", () => {
+  assert.equal(limitsStartProblem({ monitoring: "on", started: ["blockphone.daily"] }), null);
+});
+
+test("limitsStartProblem: abgelehntes Zeitfenster nennt den iOS-Fehler", () => {
+  assert.equal(
+    limitsStartProblem({ monitoring: "off", errors: ["weekly: invalid interval"] }),
+    "Limits nicht aktiv: weekly: invalid interval",
+  );
+});
+
+test("limitsStartProblem: fehlende Auswahl und fehlendes Modul sind unterscheidbar", () => {
+  assert.match(String(limitsStartProblem({ monitoring: "no_selection" })), /keine App-Auswahl/i);
+  assert.match(String(limitsStartProblem(null)), /antwortet nicht/i);
+  assert.match(String(limitsStartProblem({ monitoring: "off" })), /Zeitfenster abgelehnt/i);
 });

@@ -223,5 +223,7 @@ export type LimitsResult = {
   weekly?: number;
   activities?: string[];
   group?: boolean;
+  /** Start-Fehler von `DeviceActivityCenter.startMonitoring` (nicht verschluckt). */
+  errors?: string[];
   reason?: string;
 };

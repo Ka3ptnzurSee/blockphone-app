@@ -10,7 +10,9 @@
 // Vertrag mit Swift (`ScreenTimeShieldModule.startLimits` /
 // `DeviceActivityMonitorExtension`):
 //   [{ "index": 0, "dailySeconds": 1800, "weeklySeconds": 0 }]
-//   * index = Position im FamilyActivitySelection (applicationTokens)
+//   * index = Position im FamilyActivitySelection — Swift sortiert die Tokens
+//     dazu stabil (`orderedAppTokens`), weil die Set-Iteration prozessabhängig
+//     ist (sonst zeigt derselbe Index nach einem Neustart auf eine andere App)
 //   * fehlende/0-Werte = kein Limit → kein Event
 //   * Schwellen < MIN_THRESHOLD_S werden verworfen: iOS feuert sonst beim
 //     ersten Sekundenbruchteil und die Sperre käme einer Dauer-Sperre gleich.
@@ -53,6 +55,14 @@ export function buildMonitorRules(rules: AppRule[]): MonitorRule[] {
   return out.sort((a, b) => a.index - b.index);
 }
 
+/** Antwort von `ScreenTimeShield.startLimits(...)` (nur die geprüften Felder). */
+export type LimitsResult = {
+  monitoring?: string;
+  started?: string[];
+  errors?: string[];
+  group?: boolean;
+};
+
 /** JSON für `ScreenTimeShield.startLimits(...)`. */
 export function buildMonitorPayload(rules: AppRule[]): string {
   return JSON.stringify(buildMonitorRules(rules));
@@ -61,4 +71,21 @@ export function buildMonitorPayload(rules: AppRule[]): string {
 /** true, wenn es überhaupt etwas zu überwachen gibt. */
 export function hasMonitorRules(rules: AppRule[]): boolean {
   return buildMonitorRules(rules).length > 0;
+}
+
+/**
+ * Klartext-Grund, warum die Limits NICHT laufen — `null`, wenn alles steht.
+ *
+ * Vorher wurde das Ergebnis von `startMonitoring` ignoriert: die UI zeigte
+ * „Limit aktiv", obwohl iOS das Zeitfenster abgelehnt hatte und nie ein Event
+ * feuerte. Diese Funktion macht daraus eine sichtbare Meldung.
+ */
+export function limitsStartProblem(res: LimitsResult | null | undefined): string | null {
+  if (!res) return "Sperr-Modul antwortet nicht (Limits nicht registriert).";
+  if (res.monitoring === "on") return null;
+  if (res.monitoring === "no_selection") {
+    return "Keine App-Auswahl — Limits können nicht greifen.";
+  }
+  const err = (res.errors ?? []).filter((e) => e && e.length > 0).join("; ");
+  return err ? `Limits nicht aktiv: ${err}` : "Limits nicht aktiv (iOS hat das Zeitfenster abgelehnt).";
 }

@@ -61,6 +61,18 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         return try? PropertyListDecoder().decode(FamilyActivitySelection.self, from: data)
     }
 
+    /// Muss identisch zur Haupt-App sortieren (siehe
+    /// `ScreenTimeShieldModule.stableKey`): Set-Iteration ist prozessabhängig,
+    /// der Index im Event-Namen bezieht sich auf DIESE Reihenfolge.
+    private static func stableKey(_ token: ApplicationToken) -> String {
+        guard let data = try? PropertyListEncoder().encode(token) else { return "" }
+        return data.base64EncodedString()
+    }
+
+    private static func orderedAppTokens(_ selection: FamilyActivitySelection) -> [ApplicationToken] {
+        selection.applicationTokens.sorted { stableKey($0) < stableKey($1) }
+    }
+
     /// "d3" → ("d", 3), "w7" → ("w", 7). Fremde Events → nil.
     private static func limitEvent(_ name: String) -> (kind: String, index: Int)? {
         guard let first = name.first, first == "d" || first == "w" else { return nil }
@@ -87,7 +99,7 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
     /// Setzt den Limit-Store exakt auf den Inhalt der Merkliste (nicht additiv),
     /// damit aufgehobene Sperren auch wirklich verschwinden.
     private func applyShields(_ map: [String: [String]]) {
-        guard let tokens = Self.selection().map({ Array($0.applicationTokens) }) else {
+        guard let tokens = Self.selection().map({ Self.orderedAppTokens($0) }) else {
             log.error("keine Auswahl in der App Group — Limit kann nicht greifen")
             return
         }

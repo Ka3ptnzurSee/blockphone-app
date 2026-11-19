@@ -20,7 +20,7 @@ import {
   type AppRuleValues,
 } from "./appLimits";
 import { setLimits, startLimits, stopLimits } from "../shield/ScreenTimeShield";
-import { buildMonitorPayload, hasMonitorRules } from "./limitMonitor";
+import { buildMonitorPayload, hasMonitorRules, limitsStartProblem } from "./limitMonitor";
 
 const RULES_KEY = "pb-app-limits";
 const DELAY_KEY = "pb-app-limits-delay";
@@ -85,6 +85,19 @@ export async function loadRules(appCount: number, now = Date.now()): Promise<App
   return out;
 }
 
+/** AsyncStorage-Schlüssel der letzten Start-Diagnose ("" = alles gut). */
+const LIMITS_PROBLEM_KEY = "blockphone.limitsProblem";
+
+/** Letzte gemeldete Ursache, warum Limits nicht laufen (null = kein Problem). */
+export async function loadLimitsProblem(): Promise<string | null> {
+  try {
+    const v = await AsyncStorage.getItem(LIMITS_PROBLEM_KEY);
+    return v && v.length > 0 ? v : null;
+  } catch {
+    return null;
+  }
+}
+
 async function persist(rules: AppRule[]): Promise<void> {
   try {
     await AsyncStorage.setItem(RULES_KEY, JSON.stringify(rules));
@@ -103,8 +116,16 @@ async function persist(rules: AppRule[]): Promise<void> {
   // Schwellen bei iOS registrieren — ohne diesen Schritt feuert kein Limit,
   // weil das System die App beendet und die Monitor-Extension allein läuft.
   try {
-    if (hasMonitorRules(rules)) await startLimits(buildMonitorPayload(rules));
-    else await stopLimits();
+    if (hasMonitorRules(rules)) {
+      const res = await startLimits(buildMonitorPayload(rules));
+      // Ergebnis PRÜFEN: ohne Auswahl oder bei abgelehntem Zeitfenster feuert
+      // kein Limit — das darf die UI nicht als „aktiv" verkaufen.
+      const problem = limitsStartProblem(res);
+      await AsyncStorage.setItem(LIMITS_PROBLEM_KEY, problem ?? "");
+    } else {
+      await stopLimits();
+      await AsyncStorage.setItem(LIMITS_PROBLEM_KEY, "");
+    }
   } catch {
     /* Ohne Modul (Expo Go) bleibt die UI-Wahrheit in AsyncStorage */
   }

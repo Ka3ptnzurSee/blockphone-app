@@ -48,6 +48,7 @@ import {
   applyDueChanges,
   cancelRulePending,
   loadDelayHours,
+  loadLimitsProblem,
   loadRules,
   requestRuleChange,
   saveDelayHours,
@@ -142,6 +143,11 @@ export default function AppBlocker() {
     const asked = await unlockRequestedAt();
     if (asked > 0 && Date.now() / 1000 - asked < 600) {
       setMsg("Entsperr-Wunsch vom Sperr-Screen — unten Sperre lösen (PIN).");
+    } else {
+      // Warum laufen die Limits (nicht)? Ergebnis von startMonitoring wird
+      // gespeichert statt verschluckt — sonst behauptet die UI „aktiv".
+      const limitsProblem = await loadLimitsProblem();
+      if (limitsProblem) setMsg(limitsProblem);
     }
     const nextRules = await applyDueChanges(st.selected.apps);
     setRules(nextRules);
