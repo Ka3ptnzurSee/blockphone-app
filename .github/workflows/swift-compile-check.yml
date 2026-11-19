@@ -19,7 +19,7 @@ on:
 
 jobs:
   compile:
-    runs-on: macos-15
+    runs-on: macos-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -27,6 +27,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+
+      # Die SPM-Pakete von RN 0.86 verlangen Swift-Tools 6.2 (Xcode 26.x).
+      # Der Runner liefert mehrere Xcodes — immer die neueste nehmen, sonst
+      # bricht schon die Paketauflösung ab ("package 'apple' is using Swift
+      # tools version 6.2.0 but the installed version is 6.1.0").
+      - name: Neueste Xcode wählen
+        run: |
+          ls -d /Applications/Xcode*.app || true
+          LATEST=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          echo "Gewählt: $LATEST"
+          sudo xcode-select -s "$LATEST"
+          xcodebuild -version
+          swift --version
 
       - name: Install deps
         run: npm install
@@ -49,8 +62,6 @@ jobs:
       - name: Pods installieren
         run: cd ios && pod install --repo-update
 
-      - name: Xcode-Version
-        run: xcodebuild -version
 
       # Die Apple-Deklarationen sind die Wahrheit: Protokoll oder Klasse?
       # (ShieldConfigurationDataSource/ShieldActionDelegate sind je nach SDK
