@@ -88,9 +88,16 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             build 2>&1 | tee /tmp/build.log | tail -80
 
-      - name: Extensions im Log nachweisen
+      - name: Extensions im Build nachweisen
         if: always()
         run: |
-          for t in ShieldConfiguration ShieldAction DeviceActivityMonitor PacketTunnelProvider; do
-            if grep -qi "CompileSwift.*$t" /tmp/build.log; then echo "✓ $t kompiliert"; else echo "? $t nicht im Log (evtl. inkrementell)"; fi
+          echo "=== kompilierte Swift-Dateien der Extensions ==="
+          grep -oE "[A-Za-z]+Extension\.swift|ScreenTimeShieldModule\.swift|VpnManagerModule\.swift" /tmp/build.log | sort -u || true
+          echo "=== gebaute .appex-Bundles ==="
+          FOUND=$(find "$HOME/Library/Developer/Xcode/DerivedData" -maxdepth 12 -name "*.appex" 2>/dev/null | sed 's|.*/||' | sort -u)
+          echo "${FOUND:-(keine)}"
+          MISSING=0
+          for b in ShieldConfiguration.appex ShieldAction.appex DeviceActivityMonitor.appex PacketTunnelProvider.appex; do
+            if echo "$FOUND" | grep -qx "$b"; then echo "OK $b gebaut"; else echo "FEHLT $b"; MISSING=1; fi
           done
+          exit $MISSING
