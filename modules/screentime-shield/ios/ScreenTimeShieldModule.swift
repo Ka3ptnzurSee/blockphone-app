@@ -353,8 +353,9 @@ public class ScreenTimeShieldModule: Module {
     if !weekly.isEmpty {
       // Woche: Montag 00:00 bis Sonntag 23:59 (weekday 1 = Sonntag).
       let schedule = DeviceActivitySchedule(
-        intervalStart: DateComponents(weekday: 2, hour: 0, minute: 0),
-        intervalEnd: DateComponents(weekday: 1, hour: 23, minute: 59),
+        // DateComponents-Memberwise-Init ist reihenfolgegebunden (hour vor weekday).
+        intervalStart: DateComponents(hour: 0, minute: 0, weekday: 2),
+        intervalEnd: DateComponents(hour: 23, minute: 59, weekday: 1),
         repeats: true
       )
       if (try? center.startMonitoring(weeklyActivity, during: schedule, events: weekly)) != nil {

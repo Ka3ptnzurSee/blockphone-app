@@ -11,17 +11,21 @@
 // (Klasse heißt hier wie vom Target-Plugin erwartet: ShieldConfigurationExtension)
 // Texte: "LESS. PLEASE COME AGAIN." / "ITEMIZED ATTENTION:" (Dull v1.9.3, de)
 //
-// ShieldConfigurationDataSource ist ein PROTOKOLL → KEIN `override`.
+// WICHTIG: `ShieldConfigurationDataSource` ist in aktuellen SDKs eine KLASSE
+// (NSObject-Subklasse) und KEIN Protokoll. Deshalb wird sie beerbt (nicht
+// zusammen mit NSObject aufgelistet — das war der Build-Fehler
+// "multiple inheritance from classes 'NSObject' and 'ShieldConfigurationDataSource'")
+// und alle Methoden sind `override`.
 
 import ManagedSettings
 import ManagedSettingsUI
 import UIKit
 
-final class ShieldConfigurationExtension: NSObject, ShieldConfigurationDataSource {
+final class ShieldConfigurationExtension: ShieldConfigurationDataSource {
 
     // MARK: - Apps
 
-    func configuration(shielding application: Application) -> ShieldConfiguration {
+    override func configuration(shielding application: Application) -> ShieldConfiguration {
         ShieldConfiguration(
             backgroundColor: .black,
             icon: UIImage(systemName: "minus.circle.fill"),
@@ -45,13 +49,13 @@ final class ShieldConfigurationExtension: NSObject, ShieldConfigurationDataSourc
         )
     }
 
-    func configuration(shielding application: Application, in category: ActivityCategory) -> ShieldConfiguration {
+    override func configuration(shielding application: Application, in category: ActivityCategory) -> ShieldConfiguration {
         configuration(shielding: application)
     }
 
     // MARK: - Web-Domains
 
-    func configuration(shielding webDomain: WebDomain) -> ShieldConfiguration {
+    override func configuration(shielding webDomain: WebDomain) -> ShieldConfiguration {
         ShieldConfiguration(
             backgroundColor: .black,
             icon: UIImage(systemName: "globe"),
@@ -69,7 +73,7 @@ final class ShieldConfigurationExtension: NSObject, ShieldConfigurationDataSourc
         )
     }
 
-    func configuration(shielding webDomain: WebDomain, in category: ActivityCategory) -> ShieldConfiguration {
+    override func configuration(shielding webDomain: WebDomain, in category: ActivityCategory) -> ShieldConfiguration {
         configuration(shielding: webDomain)
     }
 }
