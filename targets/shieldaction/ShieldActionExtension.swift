@@ -18,14 +18,17 @@
 //                    Merker — ohne Gruppe schreibt sie ins eigene Default, dann
 //                    sieht die App den Antrag nicht)
 //
-// ShieldActionDelegate ist ein PROTOKOLL → kein `override`.
+// WICHTIG: `ShieldActionDelegate` ist in aktuellen SDKs eine KLASSE
+// (NSObject-Subklasse), kein Protokoll. Deshalb beerben (nicht zusätzlich
+// NSObject aufführen — das ergibt "multiple inheritance from classes 'NSObject'
+// and 'ShieldActionDelegate'") und alle Methoden `override`.
 
 import Foundation
 import ManagedSettings
 import ManagedSettingsUI
 import os
 
-final class ShieldActionExtension: NSObject, ShieldActionDelegate {
+final class ShieldActionExtension: ShieldActionDelegate {
 
     private static let groupId = "group.com.meister.blockphone"
     private static let requestKey = "shieldUnlockRequestedAt"
@@ -47,7 +50,7 @@ final class ShieldActionExtension: NSObject, ShieldActionDelegate {
 
     // MARK: - Apps
 
-    func handle(action: ShieldAction,
+    override func handle(action: ShieldAction,
                 for application: Application,
                 completionHandler: @escaping (ShieldActionResponse) -> Void) {
         switch action {
@@ -65,7 +68,7 @@ final class ShieldActionExtension: NSObject, ShieldActionDelegate {
 
     // MARK: - Webseiten
 
-    func handle(action: ShieldAction,
+    override func handle(action: ShieldAction,
                 for webDomain: WebDomain,
                 completionHandler: @escaping (ShieldActionResponse) -> Void) {
         switch action {
@@ -81,7 +84,7 @@ final class ShieldActionExtension: NSObject, ShieldActionDelegate {
 
     // MARK: - Kategorien
 
-    func handle(action: ShieldAction,
+    override func handle(action: ShieldAction,
                 for category: ActivityCategory,
                 completionHandler: @escaping (ShieldActionResponse) -> Void) {
         switch action {
