@@ -23,6 +23,7 @@ public class ScreenTimeShieldModule: Module {
   static let selectionKey = "shieldSelection"
   static let activeKey = "shieldActive"
   static let limitsKey = "appLimits"
+  static let shieldedKey = "limitsShielded"
   static let catsKey = "shieldCategories"
 
   /// App Group nur benutzen, wenn sie im Profil wirklich freigeschaltet ist.
@@ -304,6 +305,9 @@ public class ScreenTimeShieldModule: Module {
     store.shield.applications = nil
     store.shield.applicationCategories = nil
     store.shield.webDomains = nil
+    // Auch die Merkliste der Extension leeren — sonst stellt sie beim nächsten
+    // Intervallwechsel alte Sperren wieder her.
+    Self.setValue("{}", forKey: Self.shieldedKey)
   }
 
   /// Events bauen + `startMonitoring` aufrufen. Immer erst stoppen: sonst
@@ -326,13 +330,16 @@ public class ScreenTimeShieldModule: Module {
     for rule in rules where rule.index >= 0 && rule.index < tokens.count {
       let token = tokens[rule.index]
       if rule.dailySeconds >= 60 {
-        daily[DeviceActivityEvent.Name("app\(rule.index)")] = DeviceActivityEvent(
+        // Namensschema "d<index>" / "w<index>": die Extension muss wissen, ob
+        // das erreichte Limit ein Tages- oder ein Wochenlimit war — sonst
+        // hebt der Tageswechsel versehentlich eine Wochen-Sperre auf.
+        daily[DeviceActivityEvent.Name("d\(rule.index)")] = DeviceActivityEvent(
           applications: [token],
           threshold: DateComponents(second: rule.dailySeconds)
         )
       }
       if rule.weeklySeconds >= 60 {
-        weekly[DeviceActivityEvent.Name("app\(rule.index)")] = DeviceActivityEvent(
+        weekly[DeviceActivityEvent.Name("w\(rule.index)")] = DeviceActivityEvent(
           applications: [token],
           threshold: DateComponents(second: rule.weeklySeconds)
         )
