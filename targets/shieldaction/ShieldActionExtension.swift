@@ -18,7 +18,14 @@
 //                    Merker — ohne Gruppe schreibt sie ins eigene Default, dann
 //                    sieht die App den Antrag nicht)
 //
-// WICHTIG: `ShieldActionDelegate` ist in aktuellen SDKs eine KLASSE
+// WICHTIG: `ShieldActionDelegate` ist in aktuellen SDKs (Xcode 16.4 / iOS 18)
+// eine KLASSE, und die Methoden nehmen **Token**-Typen
+// (ApplicationToken/WebDomainToken/ActivityCategoryToken), keine
+// Application/WebDomain-Objekte. Beides zusammen ist die Signatur:
+//   open func handle(action:for application: ApplicationToken,
+//                    completionHandler: @escaping (ShieldActionResponse) -> Void)
+//
+// Und: `ShieldActionDelegate` ist in aktuellen SDKs eine KLASSE
 // (NSObject-Subklasse), kein Protokoll. Deshalb beerben (nicht zusätzlich
 // NSObject aufführen — das ergibt "multiple inheritance from classes 'NSObject'
 // and 'ShieldActionDelegate'") und alle Methoden `override`.
@@ -51,7 +58,7 @@ final class ShieldActionExtension: ShieldActionDelegate {
     // MARK: - Apps
 
     override func handle(action: ShieldAction,
-                for application: Application,
+                for application: ApplicationToken,
                 completionHandler: @escaping (ShieldActionResponse) -> Void) {
         switch action {
         case .primaryButtonPressed:
@@ -69,7 +76,7 @@ final class ShieldActionExtension: ShieldActionDelegate {
     // MARK: - Webseiten
 
     override func handle(action: ShieldAction,
-                for webDomain: WebDomain,
+                for webDomain: WebDomainToken,
                 completionHandler: @escaping (ShieldActionResponse) -> Void) {
         switch action {
         case .primaryButtonPressed:
@@ -85,7 +92,7 @@ final class ShieldActionExtension: ShieldActionDelegate {
     // MARK: - Kategorien
 
     override func handle(action: ShieldAction,
-                for category: ActivityCategory,
+                for category: ActivityCategoryToken,
                 completionHandler: @escaping (ShieldActionResponse) -> Void) {
         switch action {
         case .primaryButtonPressed:
