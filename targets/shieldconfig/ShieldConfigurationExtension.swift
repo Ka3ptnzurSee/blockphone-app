@@ -61,7 +61,11 @@ final class ShieldConfigurationExtension: NSObject, ShieldConfigurationDataSourc
                 color: UIColor(white: 0.55, alpha: 1)
             ),
             primaryButtonLabel: ShieldConfiguration.Label(text: "OK", color: .black),
-            primaryButtonBackgroundColor: .white
+            primaryButtonBackgroundColor: .white,
+            secondaryButtonLabel: ShieldConfiguration.Label(
+                text: "ENTSPERREN",
+                color: .white
+            )
         )
     }
 

@@ -248,6 +248,130 @@ public class ScreenTimeShieldModule: Module {
     AsyncFunction("getLimits") { () -> String in
       (Self.value(forKey: Self.limitsKey) as? String) ?? "[]"
     }
+
+    // MARK: Zeitlimits im Hintergrund (DeviceActivity)
+
+    /// Schwellen bei iOS registrieren. Ohne `startMonitoring` gibt es kein
+    /// Event und damit keine Sperre — die App ist beim Erreichen des Limits
+    /// längst beendet. `json` = [{index, dailySeconds, weeklySeconds}]
+    AsyncFunction("startLimits") { (json: String) -> [String: Any] in
+      Self.startLimitMonitoring(json: json)
+    }
+
+    AsyncFunction("stopLimits") { () -> [String: Any] in
+      let center = DeviceActivityCenter()
+      center.stopMonitoring([Self.dailyActivity, Self.weeklyActivity])
+      Self.clearLimitShield()
+      return ["monitoring": "off", "activities": center.activities.map { $0.rawValue }]
+    }
+
+    AsyncFunction("limitsStatus") { () -> [String: Any] in
+      let center = DeviceActivityCenter()
+      return [
+        "monitoring": center.activities.isEmpty ? "off" : "on",
+        "activities": center.activities.map { $0.rawValue },
+        "group": Self.groupAvailable,
+      ]
+    }
+
+    /// Zeitstempel, den die Shield-Action-Extension beim "ENTSPERREN"-Tippen
+    /// in die App Group schreibt. 0 = kein Antrag.
+    AsyncFunction("unlockRequestedAt") { () -> Double in
+      (Self.groupDefaults?.double(forKey: "shieldUnlockRequestedAt")) ?? 0
+    }
+  }
+
+  // MARK: - Zeitlimits (DeviceActivity)
+
+  static let dailyActivity = DeviceActivityName("blockphone.daily")
+  static let weeklyActivity = DeviceActivityName("blockphone.weekly")
+  /// Eigener Store: die Limits-Sperre darf den Master-Shield nie mitschleifen.
+  static let limitStoreName = ManagedSettingsStore.Name("blockphone.limits")
+
+  struct LimitRule: Decodable {
+    let index: Int
+    let dailySeconds: Int
+    let weeklySeconds: Int
+  }
+
+  static func parseLimitRules(_ json: String) -> [LimitRule] {
+    guard let data = json.data(using: .utf8) else { return [] }
+    return (try? JSONDecoder().decode([LimitRule].self, from: data)) ?? []
+  }
+
+  static func clearLimitShield() {
+    let store = ManagedSettingsStore(named: limitStoreName)
+    store.shield.applications = nil
+    store.shield.applicationCategories = nil
+    store.shield.webDomains = nil
+  }
+
+  /// Events bauen + `startMonitoring` aufrufen. Immer erst stoppen: sonst
+  /// bleiben alte Schwellen aktiv, wenn ein Limit entfernt wurde.
+  static func startLimitMonitoring(json: String) -> [String: Any] {
+    let rules = parseLimitRules(json)
+    let center = DeviceActivityCenter()
+    center.stopMonitoring([dailyActivity, weeklyActivity])
+
+    guard let selection = loadSelection() else {
+      return ["monitoring": "no_selection", "started": [], "group": groupAvailable]
+    }
+    let tokens = Array(selection.applicationTokens)
+    guard !tokens.isEmpty else {
+      return ["monitoring": "no_selection", "started": [], "group": groupAvailable]
+    }
+
+    var daily: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
+    var weekly: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
+    for rule in rules where rule.index >= 0 && rule.index < tokens.count {
+      let token = tokens[rule.index]
+      if rule.dailySeconds >= 60 {
+        daily[DeviceActivityEvent.Name("app\(rule.index)")] = DeviceActivityEvent(
+          applications: [token],
+          threshold: DateComponents(second: rule.dailySeconds)
+        )
+      }
+      if rule.weeklySeconds >= 60 {
+        weekly[DeviceActivityEvent.Name("app\(rule.index)")] = DeviceActivityEvent(
+          applications: [token],
+          threshold: DateComponents(second: rule.weeklySeconds)
+        )
+      }
+    }
+
+    var started: [String] = []
+    if !daily.isEmpty {
+      let schedule = DeviceActivitySchedule(
+        intervalStart: DateComponents(hour: 0, minute: 0),
+        intervalEnd: DateComponents(hour: 23, minute: 59),
+        repeats: true
+      )
+      if (try? center.startMonitoring(dailyActivity, during: schedule, events: daily)) != nil {
+        started.append(dailyActivity.rawValue)
+      }
+    }
+    if !weekly.isEmpty {
+      // Woche: Montag 00:00 bis Sonntag 23:59 (weekday 1 = Sonntag).
+      let schedule = DeviceActivitySchedule(
+        intervalStart: DateComponents(weekday: 2, hour: 0, minute: 0),
+        intervalEnd: DateComponents(weekday: 1, hour: 23, minute: 59),
+        repeats: true
+      )
+      if (try? center.startMonitoring(weeklyActivity, during: schedule, events: weekly)) != nil {
+        started.append(weeklyActivity.rawValue)
+      }
+    }
+
+    // Die Extension liest die Schwellen aus der App Group — ohne Gruppe
+    // bleibt sie blind, deshalb ehrlich mitliefern.
+    setValue(json, forKey: limitsKey)
+    return [
+      "monitoring": started.isEmpty ? "off" : "on",
+      "started": started,
+      "daily": daily.count,
+      "weekly": weekly.count,
+      "group": groupAvailable,
+    ]
   }
 
   // MARK: - Helfer

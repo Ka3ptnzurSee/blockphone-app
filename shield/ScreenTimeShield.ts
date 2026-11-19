@@ -171,3 +171,57 @@ export async function setLimits(json: string): Promise<void> {
     /* Persistenz ist best effort — UI rechnet weiter mit AsyncStorage */
   }
 }
+
+/**
+ * Hintergrund-Überwachung der Zeitlimits starten (DeviceActivity).
+ * `json` kommt aus `lib/limitMonitor.buildMonitorPayload(rules)`.
+ * Ohne diese Registrierung feuert kein Limit — Apple beendet die App.
+ */
+export async function startLimits(json: string): Promise<LimitsResult> {
+  if (!M) return { monitoring: "unavailable", reason: screenTimeUnavailableReason() ?? "Natives Modul fehlt" };
+  try {
+    return (await M.startLimits(json)) as LimitsResult;
+  } catch (e) {
+    return { monitoring: "error", reason: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Überwachung beenden (z. B. wenn keine Regel mehr aktiv ist). */
+export async function stopLimits(): Promise<LimitsResult> {
+  if (!M) return { monitoring: "unavailable" };
+  try {
+    return (await M.stopLimits()) as LimitsResult;
+  } catch {
+    return { monitoring: "error" };
+  }
+}
+
+/** Was hat iOS tatsächlich registriert? (Diagnose, kein Raten) */
+export async function limitsStatus(): Promise<LimitsResult> {
+  if (!M) return { monitoring: "unavailable" };
+  try {
+    return (await M.limitsStatus()) as LimitsResult;
+  } catch {
+    return { monitoring: "error" };
+  }
+}
+
+/** Merker, den die Shield-Action-Extension beim "ENTSPERREN"-Tippen setzt. */
+export async function unlockRequestedAt(): Promise<number> {
+  if (!M) return 0;
+  try {
+    return await M.unlockRequestedAt();
+  } catch {
+    return 0;
+  }
+}
+
+export type LimitsResult = {
+  monitoring: "on" | "off" | "no_selection" | "unavailable" | "error";
+  started?: string[];
+  daily?: number;
+  weekly?: number;
+  activities?: string[];
+  group?: boolean;
+  reason?: string;
+};

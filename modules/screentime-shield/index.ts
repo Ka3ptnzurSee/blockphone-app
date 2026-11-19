@@ -59,6 +59,16 @@ export type ScreenTimeShieldNative = {
   diagnostics(): Promise<Diagnostics>;
   setLimits(json: string): Promise<void>;
   getLimits(): Promise<string>;
+  startLimits(json: string): Promise<{
+    monitoring: "on" | "off" | "no_selection";
+    started?: string[];
+    daily?: number;
+    weekly?: number;
+    group?: boolean;
+  }>;
+  stopLimits(): Promise<{ monitoring: "off"; activities?: string[] }>;
+  limitsStatus(): Promise<{ monitoring: "on" | "off"; activities: string[]; group: boolean }>;
+  unlockRequestedAt(): Promise<number>;
 };
 
 const ScreenTimeShield = requireOptionalNativeModule<ScreenTimeShieldNative>("ScreenTimeShield");

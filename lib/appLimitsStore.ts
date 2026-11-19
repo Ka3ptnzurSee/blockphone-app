@@ -19,7 +19,8 @@ import {
   type AppRule,
   type AppRuleValues,
 } from "./appLimits";
-import { setLimits } from "../shield/ScreenTimeShield";
+import { setLimits, startLimits, stopLimits } from "../shield/ScreenTimeShield";
+import { buildMonitorPayload, hasMonitorRules } from "./limitMonitor";
 
 const RULES_KEY = "pb-app-limits";
 const DELAY_KEY = "pb-app-limits-delay";
@@ -98,6 +99,14 @@ async function persist(rules: AppRule[]): Promise<void> {
     await setLimits(JSON.stringify(payload));
   } catch {
     /* Extension-Sync ist best effort (Modul fehlt z. B. in Expo Go) */
+  }
+  // Schwellen bei iOS registrieren — ohne diesen Schritt feuert kein Limit,
+  // weil das System die App beendet und die Monitor-Extension allein läuft.
+  try {
+    if (hasMonitorRules(rules)) await startLimits(buildMonitorPayload(rules));
+    else await stopLimits();
+  } catch {
+    /* Ohne Modul (Expo Go) bleibt die UI-Wahrheit in AsyncStorage */
   }
 }
 

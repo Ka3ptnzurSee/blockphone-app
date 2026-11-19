@@ -37,8 +37,17 @@ jobs:
         run: node scripts/check-targets.mjs
 
       - name: Build iOS (local, umgeht EAS-Cloud-Kontingent)
+        # Extensions per Repository-Variable scharf schalten, sobald Apple die
+        # Capabilities freigegeben hat (Portal-Aktion, nicht per API möglich):
+        #   vars.BLOCKPHONE_SHIELD_EXT=1      → shieldconfig + shieldaction
+        #   vars.BLOCKPHONE_DEVICE_ACTIVITY=1  → deviceactivity (Zeitlimits)
+        #   vars.BLOCKPHONE_APP_GROUP=1        → App Group im Entitlements
+        # Ohne Variablen bleibt der Build wie Build 148 (nur DNS-Tunnel) — grün.
         env:
           CI: 1
+          BLOCKPHONE_SHIELD_EXT: ${{ vars.BLOCKPHONE_SHIELD_EXT }}
+          BLOCKPHONE_DEVICE_ACTIVITY: ${{ vars.BLOCKPHONE_DEVICE_ACTIVITY }}
+          APP_GROUP: ${{ vars.BLOCKPHONE_APP_GROUP }}
         run: eas build --platform ios --profile production --non-interactive --local
 
       - name: Submit to TestFlight

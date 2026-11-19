@@ -13,9 +13,11 @@ module.exports = {
   bundleIdentifier: ".ShieldAction",
   deploymentTarget: "16.0",
   frameworks: ["ManagedSettings"],
-  // Kein App-Group-Entitlement: dieser Screen liest keine geteilten Daten.
-  // Jedes zusätzliche Entitlement muss im Provisioning-Profil freigegeben sein.
+  // App Group: hier wird der Entsperr-Antrag hinterlegt, den die Haupt-App
+  // beim nächsten Start liest (sonst sähe sie ihn nie — siehe ShieldActionExtension).
+  // Jedes Entitlement muss im Provisioning-Profil freigegeben sein.
   entitlements: {
     "com.apple.developer.family-controls": true,
+    "com.apple.security.application-groups": ["group.com.meister.blockphone"],
   },
 };

@@ -30,6 +30,7 @@ import {
   shieldApps,
   shieldDiagnostics,
   shieldState,
+  unlockRequestedAt,
   type Diagnostics,
   type ShieldState,
 } from "../shield/ScreenTimeShield";
@@ -134,6 +135,14 @@ export default function AppBlocker() {
     setDenyRemoval(deny);
     const savedMaster = masterRaw === "1";
     setMaster(savedMaster || (savedMaster === false && st.active));
+
+    // Antrag vom Sperr-Screen (ShieldActionExtension → App Group): Wenn der
+    // Nutzer „ENTSPERREN" getippt hat und die App deshalb aufging, soll das
+    // hier stehen — nicht stillschweigend untergehen.
+    const asked = await unlockRequestedAt();
+    if (asked > 0 && Date.now() / 1000 - asked < 600) {
+      setMsg("Entsperr-Wunsch vom Sperr-Screen — unten Sperre lösen (PIN).");
+    }
     const nextRules = await applyDueChanges(st.selected.apps);
     setRules(nextRules);
     // Abgelaufene Anträge sofort durchsetzen (sonst würde z. B. eine nach

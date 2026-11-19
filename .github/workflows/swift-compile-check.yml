@@ -1,0 +1,74 @@
+name: Swift-Extensions kompilieren (ohne Signatur)
+
+# Warum: shieldconfig/shieldaction/deviceactivity werden nur mit Flags gebaut.
+# Ohne diesen Job fällt ein Swift-Fehler erst im Release-Build auf dem Gerät
+# auf (so passiert in Build 148: "Build kompilierte nicht").
+#
+# Hier wird NUR kompiliert (CODE_SIGNING_ALLOWED=NO): Entitlements/Profile
+# sind egal, es geht rein um Syntax/Typen der Extension-Quellen.
+
+on:
+  workflow_dispatch: {}
+  push:
+    paths:
+      - "targets/**"
+      - "modules/screentime-shield/**"
+      - "modules/vpn-manager/**"
+      - "plugins/**"
+      - ".github/workflows/swift-compile-check.yml"
+
+jobs:
+  compile:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install deps
+        run: npm install
+
+      - name: Targets prüfen (mit allen Flags)
+        env:
+          BLOCKPHONE_SHIELD_EXT: "1"
+          BLOCKPHONE_DEVICE_ACTIVITY: "1"
+          APP_GROUP: "1"
+        run: node scripts/check-targets.mjs
+
+      - name: Prebuild mit allen Targets
+        env:
+          CI: 1
+          BLOCKPHONE_SHIELD_EXT: "1"
+          BLOCKPHONE_DEVICE_ACTIVITY: "1"
+          APP_GROUP: "1"
+        run: npx expo prebuild -p ios --clean --no-install
+
+      - name: Pods installieren
+        run: cd ios && pod install --repo-update
+
+      - name: Xcode-Version
+        run: xcodebuild -version
+
+      - name: Alle Targets kompilieren (Simulator, ohne Signatur)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -workspace ios/Blockphone.xcworkspace \
+            -scheme Blockphone \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -quiet \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build 2>&1 | tee /tmp/build.log | tail -80
+
+      - name: Extensions im Log nachweisen
+        if: always()
+        run: |
+          for t in ShieldConfiguration ShieldAction DeviceActivityMonitor PacketTunnelProvider; do
+            if grep -qi "CompileSwift.*$t" /tmp/build.log; then echo "✓ $t kompiliert"; else echo "? $t nicht im Log (evtl. inkrementell)"; fi
+          done
