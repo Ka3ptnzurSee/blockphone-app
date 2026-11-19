@@ -52,6 +52,17 @@ jobs:
       - name: Xcode-Version
         run: xcodebuild -version
 
+      # Die Apple-Deklarationen sind die Wahrheit: Protokoll oder Klasse?
+      # (ShieldConfigurationDataSource/ShieldActionDelegate sind je nach SDK
+      # unterschiedlich — dieser Schritt schreibt die echten Signaturen ins Log.)
+      - name: SDK-Deklarationen (ManagedSettings*)
+        run: |
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          for f in $(find "$SDK/System/Library/Frameworks" -maxdepth 2 -name "*.swiftinterface" -path "*ManagedSettings*" 2>/dev/null); do
+            echo "=== $f"
+            grep -nE "(class|protocol|func handle|func configuration|open func)" "$f" | grep -iE "shield|handle\(action|configuration\(shielding" | head -40
+          done
+
       - name: Alle Targets kompilieren (Simulator, ohne Signatur)
         run: |
           set -o pipefail
