@@ -126,6 +126,27 @@ const cdnMustWork = [
   "time.apple.com",
 ];
 const brokenCdn = cdnMustWork.filter((d) => matches(d, set));
+// Grosse Dienste, bei denen ein Treffer sofort auffallen wuerde ("App kaputt").
+// Diese Liste ist der eigentliche Fehlalarm-Test: geprueft wird per
+// Suffix-Match, also genau so, wie der Tunnel blockt.
+const bigServices = [
+  "google.com", "www.google.com", "youtube.com", "gmail.com", "googleapis.com",
+  "office.com", "microsoft.com", "live.com", "outlook.com", "teams.microsoft.com",
+  "icloud.com", "apple.com", "amazon.de", "ebay.de", "kleinanzeigen.de",
+  "immobilienscout24.de", "whatsapp.com", "instagram.com", "facebook.com",
+  "tiktok.com", "x.com", "twitter.com", "linkedin.com", "netflix.com",
+  "spotify.com", "telegram.org", "signal.org", "threema.ch", "bahn.de",
+  "dhl.de", "comdirect.de", "n26.com", "paypal.com", "klarna.com", "elster.de",
+  "bund.de", "arbeitsagentur.de", "htw-dresden.de", "tu-dresden.de",
+  "bildungsportal.sachsen.de", "slub-dresden.de", "mozilla.org",
+  "wikipedia.org", "github.com", "stackoverflow.com", "zoom.us",
+  "wetransfer.com", "dropbox.com", "schufa.de", "check24.de", "idealo.de",
+  "otto.de", "zalando.de", "lieferando.de", "slack.com", "discord.com",
+  "twitch.tv", "reddit.com", "pinterest.com", "snapchat.com", "vinted.de",
+  "strava.com", "garmin.com",
+];
+const brokenServices = bigServices.filter((d) => matches(d, set));
+
 const falsePositives = mustResolve.filter((d) => matches(d, set));
 
 // --- Near-Misses: darf NICHT als Tracker gelten ---------------------------
@@ -150,6 +171,10 @@ console.log(
     (falsePositives.length ? ` — ${falsePositives.join(", ")}` : " (keine)"),
 );
 console.log(
+  `Grosse Dienste blockiert: ${brokenServices.length}/${bigServices.length}` +
+    (brokenServices.length ? ` — ${brokenServices.join(", ")}` : " (keine)"),
+);
+console.log(
   `App-CDNs blockiert: ${brokenCdn.length}` + (brokenCdn.length ? ` — ${brokenCdn.join(", ")}` : " (keine)"),
 );
 console.log(`Near-Miss fälschlich geblockt: ${nearMissHits.length}${nearMissHits.length ? " — " + nearMissHits.join(", ") : " (keine)"}`);
@@ -161,6 +186,7 @@ if (empty > 0 || wildcard > 0 || tooLong > 0 || bareTld > 0) {
 }
 if (falsePositives.length > 0) hardFailures.push(`Fehlalarm: ${falsePositives.join(", ")}`);
 if (brokenCdn.length > 0) hardFailures.push(`App-CDN geblockt: ${brokenCdn.join(", ")}`);
+if (brokenServices.length > 0) hardFailures.push(`grosser Dienst geblockt: ${brokenServices.join(", ")}`);
 if (adSamples.length - missingTrackers.length < adSamples.length * 0.8) {
   hardFailures.push(`Tracker-Abdeckung unter 80 % (${adSamples.length - missingTrackers.length}/${adSamples.length})`);
 }
