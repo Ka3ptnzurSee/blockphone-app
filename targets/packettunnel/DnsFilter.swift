@@ -132,6 +132,10 @@ final class DnsFilter {
     // MARK: - Blocklist
 
     func isBlocked(_ name: String) -> Bool {
+        // Normalisieren statt sich auf den Aufrufer zu verlassen: parse() liefert
+        // den Namen bereits kleingeschrieben, aber ein künftiger Aufrufer (oder
+        // eine Query mit "ADS.DoubleClick.NET.") darf keine Lücke erzeugen.
+        let name = name.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
         if mode == "allowlist" {
             // Internet aus: alles sperren, was nicht ausdrücklich erlaubt ist.
             return !Self.matches(name, in: allowlist)

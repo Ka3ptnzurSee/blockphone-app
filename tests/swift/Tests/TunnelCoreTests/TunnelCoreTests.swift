@@ -130,7 +130,8 @@ final class TunnelCoreTests: XCTestCase {
         // trailing dot / Grossschreibung / Whitespace dürfen nicht zu Lücken führen.
         let filter = DnsFilter(blocklist: ["  DoubleClick.NET.  "], mode: "blocklist")
         XCTAssertTrue(filter.isBlocked("ads.doubleclick.net"))
-        XCTAssertTrue(filter.isBlocked("DOUBLECLICK.NET"))
+        XCTAssertTrue(filter.isBlocked("DOUBLECLICK.NET"), "isBlocked normalisiert Gross-/Kleinschreibung")
+        XCTAssertTrue(filter.isBlocked("doubleclick.net."), "trailing dot darf nicht durchrutschen")
     }
 
     func testAllowlistModeIsInverted() {
@@ -185,7 +186,7 @@ final class TunnelCoreTests: XCTestCase {
 
         let out = filter.blockedEnvelope(for: req)
         let b = bytes(out)
-        let udpLen = 8 + Int(calcUdpPayload(b))
+        let udpLen = Int(calcUdpPayload(b))   // Feld im UDP-Header = 8 + DNS-Payload
         assertValidIpv4(out, src: [10, 8, 0, 1], dst: [10, 8, 0, 2], udpLen: udpLen)
         assertValidUdpChecksum(out, db: b)
 
