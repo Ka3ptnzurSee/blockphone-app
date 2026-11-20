@@ -24,6 +24,7 @@ import type { Platform } from "./browser";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const code = (rel: string) =>
   readFileSync(path.join(root, rel), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "")     // Blockkommentare mit ausblenden
     .split("\n")
     .filter((l) => !l.trim().startsWith("//"))
     .join("\n");
@@ -31,8 +32,27 @@ const tunnel = () => code("targets/packettunnel/PacketTunnelProvider.swift");
 const filter = () => code("targets/packettunnel/DnsFilter.swift");
 
 test("allowlist-Modus: Werbe-Liste wird NICHT angehängt", () => {
-  // Erwartetes Muster: if rules.ads && rules.mode != "allowlist" { … }
-  assert.match(tunnel(), /if\s+rules\.ads\s*&&\s*rules\.mode\s*!=\s*"allowlist"/);
+  // Absichtlich nicht auf die Operanden-Reihenfolge gepinnt (ein
+  // verhaltensgleicher Refactor darf nicht rot werden). Geprüft wird: es gibt
+  // einen if/guard mit `ads` UND `allowlist`, und `blocklist += ads` steht
+  // INNERHALB genau dieses Blocks — sonst wäre der Guard wirkungslos.
+  const lines = tunnel().split("\n");
+  const blockEnd = (guard: number) => {
+    const indent = lines[guard].search(/\S/);
+    for (let i = guard + 1; i < lines.length; i++) {
+      if (lines[i].trim() === "}" && lines[i].search(/\S/) === indent) return i;
+    }
+    return lines.length;
+  };
+
+  let ok = false;
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    if (!/^\s*(if|guard)\b/.test(l) || !/\bads\b/.test(l) || !/allowlist/.test(l)) continue;
+    const end = blockEnd(i);
+    if (lines.slice(i, end).some((x) => /blocklist\s*\+=\s*ads/.test(x))) ok = true;
+  }
+  assert.ok(ok, "kein ads-Guard mit \"allowlist\"-Bedingung, der blocklist += ads umschliesst");
 });
 
 test("allowlist-Modus: isBlocked invertiert (alles ausser Allowlist sperren)", () => {
@@ -60,7 +80,10 @@ test("Werbe-Liste ist als Ressource deklariert und nicht im providerConfiguratio
   const src = tunnel();
   assert.match(src, /Bundle\.main\.url\(forResource:\s*"adblock"/);
   const js = code("lib/vpn.ts");
-  assert.ok(!/adblock/i.test(js), "lib/vpn.ts darf die Werbe-Liste nicht mitschicken");
+  // Gegen den echten Import/Verweis prüfen, nicht gegen das Wort "adblock" —
+  // sonst würde ein Kommentar den Test rot machen.
+  assert.ok(!/from\s+["'][^"']*adBlocklist/.test(js), "lib/vpn.ts importiert die Werbe-Liste");
+  assert.ok(!/adblock\.json/.test(js), "lib/vpn.ts verweist auf adblock.json");
 });
 
 test("Plattform-Blocklist bleibt klein genug für providerConfiguration", () => {
