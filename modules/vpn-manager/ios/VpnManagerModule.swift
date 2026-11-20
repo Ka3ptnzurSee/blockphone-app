@@ -135,6 +135,12 @@ final class VpnService {
     }
 
     /// Blocklist im laufenden Tunnel tauschen (Tunnel neu starten).
+    ///
+    /// Hinweis: die App steuert den Tunnel heute über `start(...)` (voller
+    /// Neustart mit kompletter Konfiguration); `setDnsBlocklist` in lib/vpn.ts
+    /// hat aktuell keinen Aufrufer. Diese Funktion bleibt als Bridge-Vertrag
+    /// erhalten und muss deshalb auch allein korrekt sein — inklusive mode und
+    /// allowlist, sonst kippt "Internet aus" beim Tausch still auf blocklist.
     func updateBlocklist(_ domains: [String]) async throws {
         let all = try await loadAll()
         guard let mgr = all.first(where: {
@@ -154,8 +160,17 @@ final class VpnService {
             mgr.protocolConfiguration = proto
             try await save(mgr)
         }
-        if mgr.connection.status == .connected {
+        if mgr.connection.status == .connected || mgr.connection.status == .connecting {
             mgr.connection.stopVPNTunnel()
+            // Auf .disconnected warten: startVPNTunnel() während .disconnecting
+            // wirft (NEVPNErrorDomain), der Tunnel bliebe dann aus. Das Profil hat
+            // isOnDemandEnabled=true, deshalb ist ein harter Neustart hier der
+            // einzige Weg, die neue Liste wirklich zu laden.
+            for _ in 0..<20 {
+                let st = mgr.connection.status
+                if st == .disconnected || st == .invalid { break }
+                try? await Task.sleep(nanoseconds: 100_000_000)  // 100 ms, max 2 s
+            }
             try mgr.connection.startVPNTunnel()
         }
     }
