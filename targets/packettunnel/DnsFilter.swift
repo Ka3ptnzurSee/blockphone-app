@@ -49,10 +49,14 @@ final class DnsFilter {
         ("8.8.8.8", "dns.google"),
     ]
 
-    // Timeouts bewusst knapp: 4 Versuche × (1,5 s + 2 s) wäre für einen
-    // DNS-Client (typisch 5 s) zu lang — er gäbe vorher auf.
-    private let dotTimeout: TimeInterval = 1.5
-    private let udpTimeout: TimeInterval = 2.0
+    // Timeouts: DoT braucht pro Query einen frischen TCP+TLS-Handshake (kein
+    // Connection-Reuse) — 1,5 s wäre auf Mobilfunk zu knapp und würde den
+    // Klartext-Fallback zur Regel machen. Worst Case insgesamt ~4 s, also
+    // unter dem typischen Client-Timeout von 5 s.
+    private let dotTimeout: TimeInterval = 2.5
+    private let udpTimeout: TimeInterval = 1.5
+    private let downgradeLock = NSLock()
+    private var downgradeLogged = false
 
     // Ressourcen-Begrenzung: max. 16 gleichzeitige DoT-Verbindungen.
     // Bei Überlast wird gedroppt (der DNS-Client wiederholt die Anfrage).
@@ -173,39 +177,71 @@ final class DnsFilter {
             completion(failureEnvelope(for: req))
             return
         }
-        attempt(req, index: 0) { [weak self] answer in
-            guard let self = self else { return }
-            self.semaphore.signal()
-            // Kein Upstream hat geantwortet → SERVFAIL statt Paket-Drop.
-            completion(answer ?? self.failureEnvelope(for: req))
-        }
-    }
-
-    /// Probiert die Upstream-Kette der Reihe nach: DoT → UDP, Anbieter 1 → 2.
-    private func attempt(_ req: Request, index: Int, completion: @escaping (Data?) -> Void) {
-        guard index < upstreams.count else {
-            completion(nil)
-            return
-        }
-        let up = upstreams[index]
-        forwardDoT(req, host: up.host, sni: up.sni) { [weak self] answer in
+        // DoT an BEIDE Anbieter parallel: sequenziell hätte jede Query bis zu
+        // 2 × dotTimeout gebraucht — länger als das Client-Timeout (~5 s).
+        firstSuccess(req, useDoT: true, timeout: dotTimeout) { [weak self] answer in
             guard let self = self else { return }
             if let answer = answer {
+                self.semaphore.signal()
                 completion(answer)
                 return
             }
-            self.forwardUDP(req, host: up.host) { udpAnswer in
-                if let udpAnswer = udpAnswer {
-                    completion(udpAnswer)
-                    return
-                }
-                self.attempt(req, index: index + 1, completion: completion)
+            // Kein DoT weit und breit → Klartext-UDP. Das ist ein Sicherheits-
+            // Downgrade (Spoofing möglich), deshalb genau einmal laut loggen.
+            self.notePlaintextDowngrade()
+            self.firstSuccess(req, useDoT: false, timeout: self.udpTimeout) { udpAnswer in
+                self.semaphore.signal()
+                completion(udpAnswer ?? self.failureEnvelope(for: req))
             }
+        }
+    }
+
+    /// Fragt alle Upstreams GLEICHZEITIG und nimmt die erste brauchbare Antwort.
+    /// `done` wird genau einmal aufgerufen (Erfolg, oder nil wenn alle scheitern).
+    private func firstSuccess(_ req: Request, useDoT: Bool, timeout: TimeInterval,
+                              done: @escaping (Data?) -> Void) {
+        let lock = NSLock()
+        var remaining = upstreams.count
+        var settled = false
+
+        let one: (Data?) -> Void = { answer in
+            lock.lock()
+            if let answer = answer, !settled {
+                settled = true
+                lock.unlock()
+                done(answer)
+                return
+            }
+            remaining -= 1
+            let lastIn = remaining <= 0 && !settled
+            if lastIn { settled = true }
+            lock.unlock()
+            if lastIn { done(nil) }
+        }
+
+        for up in upstreams {
+            if useDoT {
+                forwardDoT(req, host: up.host, sni: up.sni, timeout: timeout, completion: one)
+            } else {
+                forwardUDP(req, host: up.host, timeout: timeout, completion: one)
+            }
+        }
+    }
+
+    /// Loggt den Klartext-Downgrade genau einmal pro Filter-Lebensdauer.
+    private func notePlaintextDowngrade() {
+        downgradeLock.lock()
+        let first = !downgradeLogged
+        downgradeLogged = true
+        downgradeLock.unlock()
+        if first {
+            NSLog("[Blockphone] DoT (Port 853) nicht erreichbar — Fallback auf Klartext-UDP/53")
         }
     }
 
     /// Klassisches DNS über UDP/53 (Fallback, unverschlüsselt).
-    private func forwardUDP(_ req: Request, host: String, completion: @escaping (Data?) -> Void) {
+    private func forwardUDP(_ req: Request, host: String, timeout: TimeInterval,
+                            completion: @escaping (Data?) -> Void) {
         let conn = NWConnection(host: NWEndpoint.Host(host),
                                 port: NWEndpoint.Port(rawValue: plainPort)!,
                                 using: .udp)
@@ -223,7 +259,7 @@ final class DnsFilter {
         }
 
         state.timeout = DispatchWorkItem { conn.cancel() }
-        queue.asyncAfter(deadline: .now() + udpTimeout, execute: state.timeout!)
+        queue.asyncAfter(deadline: .now() + timeout, execute: state.timeout!)
 
         track(conn)
         conn.stateUpdateHandler = { s in
@@ -248,7 +284,7 @@ final class DnsFilter {
     }
 
     /// DoT-Weiterleitung (verschlüsselt, Port 853).
-    private func forwardDoT(_ req: Request, host: String, sni: String,
+    private func forwardDoT(_ req: Request, host: String, sni: String, timeout: TimeInterval,
                             completion: @escaping (Data?) -> Void) {
         let tlsOptions = NWProtocolTLS.Options()
         sni.withCString { cstr in
@@ -273,10 +309,10 @@ final class DnsFilter {
             completion(result)
         }
 
-        // Timeout: hängende Verbindung abbrechen, damit der nächste Upstream
-        // drankommt (der Client wartet nicht beliebig lange).
+        // Timeout: hängende Verbindung abbrechen, damit der UDP-Fallback bzw.
+        // SERVFAIL drankommt (der Client wartet nicht beliebig lange).
         state.timeout = DispatchWorkItem { conn.cancel() }
-        queue.asyncAfter(deadline: .now() + dotTimeout, execute: state.timeout!)
+        queue.asyncAfter(deadline: .now() + timeout, execute: state.timeout!)
 
         track(conn)
         conn.stateUpdateHandler = { s in

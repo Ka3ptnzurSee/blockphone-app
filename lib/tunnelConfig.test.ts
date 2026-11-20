@@ -66,6 +66,20 @@ test("Filter: mehrere Upstreams statt eines einzelnen Anbieters", () => {
   assert.match(src, /"8\.8\.8\.8"/);
 });
 
+test("Filter: DoT-Timeout deckt einen TLS-Handshake ab (kein Klartext-Zwang)", () => {
+  // Pro Query wird eine frische TLS-Verbindung aufgebaut; < 2 s macht den
+  // Klartext-Fallback zur Regel und hebelt den Spoofing-Schutz aus.
+  const m = filter().match(/dotTimeout: TimeInterval = ([0-9.]+)/);
+  assert.ok(m, "dotTimeout muss explizit gesetzt sein");
+  assert.ok(Number(m![1]) >= 2.0, `dotTimeout ${m![1]}s ist zu knapp für TLS-Handshake`);
+});
+
+test("Filter: Upstreams werden parallel gefragt (Client-Timeout ~5 s)", () => {
+  // Sequenzielle Kette bräuchte bis 2 × 2,5 s + 2 × 1,5 s > Client-Timeout.
+  assert.match(filter(), /private func firstSuccess\(/);
+  assert.ok(!/private func attempt\(/.test(filter()), "sequenzielle attempt()-Kette darf nicht zurückkommen");
+});
+
 test("Filter: kein stiller Paket-Drop — SERVFAIL wird erzeugt", () => {
   const src = filter();
   assert.match(src, /func failureEnvelope\(for req: Request\)/);

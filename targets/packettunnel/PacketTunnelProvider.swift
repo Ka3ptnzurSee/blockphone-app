@@ -71,7 +71,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             return []
         }
         guard let arr = (try? JSONSerialization.jsonObject(with: data)) as? [String] else {
-            NSLog("[Blockphone] adblock.json ist kein String-Array (%d Bytes)", data.count)
+            NSLog("[Blockphone] adblock.json ist kein String-Array (%d Bytes)", Int32(data.count))
             return []
         }
         return arr
