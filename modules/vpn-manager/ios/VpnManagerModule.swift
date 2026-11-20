@@ -160,19 +160,35 @@ final class VpnService {
             mgr.protocolConfiguration = proto
             try await save(mgr)
         }
-        if mgr.connection.status == .connected || mgr.connection.status == .connecting {
-            mgr.connection.stopVPNTunnel()
-            // Auf .disconnected warten: startVPNTunnel() während .disconnecting
-            // wirft (NEVPNErrorDomain), der Tunnel bliebe dann aus. Das Profil hat
-            // isOnDemandEnabled=true, deshalb ist ein harter Neustart hier der
-            // einzige Weg, die neue Liste wirklich zu laden.
-            for _ in 0..<20 {
-                let st = mgr.connection.status
-                if st == .disconnected || st == .invalid { break }
-                try? await Task.sleep(nanoseconds: 100_000_000)  // 100 ms, max 2 s
-            }
-            try mgr.connection.startVPNTunnel()
+        // Neustart nur, wenn der Tunnel läuft oder gerade hochkommt. Auch
+        // .disconnecting/.reasserting müssen hier rein: sonst würde die neue
+        // Liste gespeichert, der laufende Tunnel behielte aber die alte.
+        let running = mgr.connection.status
+        guard running != .disconnected, running != .invalid else { return }
+
+        mgr.connection.stopVPNTunnel()
+        // Auf .disconnected warten: startVPNTunnel() während .disconnecting wirft
+        // (NEVPNErrorDomain), der Tunnel bliebe dann aus. Das Profil hat
+        // isOnDemandEnabled=true, deshalb ist ein harter Neustart hier der
+        // einzige Weg, die neue Liste wirklich zu laden.
+        var now = running
+        for _ in 0..<20 {
+            now = mgr.connection.status
+            if now == .disconnected || now == .invalid { break }
+            // `try await` (kein `try?`): Task-Abbruch bricht ab, statt ohne
+            // Delay durchzudrehen und trotzdem zu starten.
+            try await Task.sleep(nanoseconds: 100_000_000)  // 100 ms, max 2 s
         }
+        guard now == .disconnected || now == .invalid else {
+            // Nicht trotzdem starten: der Fehler ist die ehrlichere Auskunft als
+            // ein Tunnel, der still mit der alten Blocklist weiterläuft.
+            throw NSError(
+                domain: "Blockphone.VpnManager",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Tunnel reagiert nicht auf Stopp — Blocklist nicht übernommen"]
+            )
+        }
+        try mgr.connection.startVPNTunnel()
     }
 
     func status() async throws -> [String: Any] {
