@@ -33,7 +33,8 @@
   },
   "scripts": {
     "start": "expo start",
-    "test": "node --import tsx --test lib/blocker.test.ts lib/streak.test.ts lib/limits.test.ts lib/appLimits.test.ts lib/dnsBlocklist.test.ts lib/adBlocklist.test.ts lib/commitment.test.ts lib/intervention.test.ts lib/schedule.test.ts lib/gamification.test.ts lib/revenuecat.test.ts lib/leaderboard.test.ts lib/access.test.ts lib/vault.test.ts lib/urlPolicy.test.ts lib/autofill.test.ts lib/browser.test.ts lib/pip.test.ts lib/limitMonitor.test.ts lib/tunnelConfig.test.ts",
+    "audit:adblock": "node scripts/adblock-audit.mjs",
+    "test": "node --import tsx --test lib/blocker.test.ts lib/streak.test.ts lib/limits.test.ts lib/appLimits.test.ts lib/dnsBlocklist.test.ts lib/adBlocklist.test.ts lib/commitment.test.ts lib/intervention.test.ts lib/schedule.test.ts lib/gamification.test.ts lib/revenuecat.test.ts lib/leaderboard.test.ts lib/access.test.ts lib/vault.test.ts lib/urlPolicy.test.ts lib/autofill.test.ts lib/browser.test.ts lib/pip.test.ts lib/limitMonitor.test.ts lib/tunnelConfig.test.ts lib/vpnBridge.test.ts",
     "build": "OUT=$(mktemp -d) && expo export --platform ios --output-dir \"$OUT\"",
     "android": "expo run:android",
     "ios": "expo run:ios",

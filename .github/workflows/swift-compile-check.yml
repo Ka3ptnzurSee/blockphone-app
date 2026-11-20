@@ -101,3 +101,28 @@ jobs:
             if echo "$FOUND" | grep -qx "$b"; then echo "OK $b gebaut"; else echo "FEHLT $b"; MISSING=1; fi
           done
           exit $MISSING
+
+      # Warum dieser Schritt: Der Werbeblocker liest die Liste aus dem
+      # Extension-Bundle (Bundle.main.url(forResource: "adblock")). Fehlt die
+      # Datei im .appex, blockt die App NULL Domains — ohne Fehlermeldung.
+      # Das laesst sich nur am gebauten Bundle pruefen, nicht am Quelltext.
+      - name: adblock.json im PacketTunnelProvider.appex nachweisen
+        run: |
+          set -o pipefail
+          DD="$HOME/Library/Developer/Xcode/DerivedData"
+          APEX=$(find "$DD" -maxdepth 12 -name "PacketTunnelProvider.appex" -type d 2>/dev/null | head -1)
+          if [ -z "$APEX" ]; then echo "FEHLT: PacketTunnelProvider.appex nicht gebaut"; exit 1; fi
+          echo "appex: $APEX"
+          ls -la "$APEX" | head -20
+          if [ ! -f "$APEX/adblock.json" ]; then
+            echo "ROT: adblock.json liegt NICHT im Extension-Bundle -> Blocker blockt 0 Domains"
+            exit 1
+          fi
+          node -e '
+            const a = require(process.argv[1]);
+            if (!Array.isArray(a) || a.length < 1000) {
+              console.error("ROT: Liste im Bundle unbrauchbar: " + (Array.isArray(a) ? a.length : typeof a));
+              process.exit(1);
+            }
+            console.log("GRUEN: adblock.json im Bundle, " + a.length + " Domains, " + Math.round(JSON.stringify(a).length / 1024) + " KB");
+          ' "$APEX/adblock.json"

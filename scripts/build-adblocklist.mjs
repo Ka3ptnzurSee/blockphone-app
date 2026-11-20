@@ -83,6 +83,23 @@ function collapse(domains) {
 
 const text = await loadText(SRC);
 const parsed = parseHosts(text);
+
+// Nachzügler, die in StevenBlack fehlen, aber reine Tracking-Endpunkte sind.
+// Absichtlich KEINE Login-/CDN-Kerninfrastruktur (facebook.com,
+// graph.facebook.com, sentry.io) — die würde Apps kaputt machen, statt Werbung
+// zu blocken. Quelle der Auswahl: ein Audit gegen bekannte Tracker-Hosts
+// (scripts/adblock-audit.mjs).
+const EXTRA = [
+  "connect.facebook.net",   // Facebook-Pixel (nicht in StevenBlack)
+  "business-api.tiktok.com", // TikTok Events API
+  "amplitude.com",          // Produkt-Analytics
+  "segment.io",             // Segment/CDP-Tracking
+  "clarity.ms",             // Microsoft Clarity (Session-Recording)
+  "in.appcenter.ms",        // MS App Center Analytics
+  "api.appcenter.ms",
+];
+for (const d of EXTRA) parsed.add(d);
+
 const minimal = collapse(parsed);
 
 // Sanity-Gate: eine kaputte/leere Quelle darf die ausgelieferte Liste NICHT
