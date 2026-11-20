@@ -60,10 +60,20 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     /// providerConfiguration — 41k Einträge sprengen die VPN-Plist; als
     /// Bundle-Ressource ist die Liste ausserdem offline aktuell.
     private static func loadAdDomains() -> [String] {
-        guard let url = Bundle.main.url(forResource: "adblock", withExtension: "json"),
-              let data = try? Data(contentsOf: url),
-              let arr = (try? JSONSerialization.jsonObject(with: data)) as? [String]
-        else { return [] }
+        guard let url = Bundle.main.url(forResource: "adblock", withExtension: "json") else {
+            // Häufigste Ursache für "Werbeblocker an, blockt aber nichts":
+            // die Ressource liegt nicht im .appex (Xcode-Sync-Group/Prebuild).
+            NSLog("[Blockphone] adblock.json NICHT im Extension-Bundle (%@)", Bundle.main.bundlePath)
+            return []
+        }
+        guard let data = try? Data(contentsOf: url) else {
+            NSLog("[Blockphone] adblock.json unlesbar: %@", url.path)
+            return []
+        }
+        guard let arr = (try? JSONSerialization.jsonObject(with: data)) as? [String] else {
+            NSLog("[Blockphone] adblock.json ist kein String-Array (%d Bytes)", data.count)
+            return []
+        }
         return arr
     }
 
@@ -82,7 +92,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         // warum. Deshalb hier laut ins Gerätelog (Console.app, Subsystem
         // com.meister.blockphone) statt still leer weiterzulaufen.
         NSLog("[Blockphone] Tunnel-Start: ads=%d, adblock-Ressource=%d Domains, blocklist=%d, allowlist=%d, mode=%@",
-              rules.ads ? 1 : 0, adsCount, blocklist.count, rules.allowlist.count, rules.mode)
+              Int32(rules.ads ? 1 : 0), Int32(adsCount), Int32(blocklist.count),
+              Int32(rules.allowlist.count), rules.mode as NSString)
 
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "10.8.0.1")
         let ipv4 = NEIPv4Settings(addresses: ["10.8.0.1"], subnetMasks: ["255.255.255.255"])
@@ -136,8 +147,13 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                     immediate.append(filter.blockedEnvelope(for: req))
                 } else {
                     filter.forward(req) { [weak self] answer in
-                        guard let self = self, self.running, let answer else { return }
-                        self.packetFlow.writePackets([answer], withProtocols: [NSNumber(value: AF_INET)])
+                        guard let self = self, self.running else { return }
+                        // forward() liefert bei Totalausfall der Upstreams einen
+                        // SERVFAIL-Envelope (nie nil) — trotzdem defensiv: nie
+                        // ein Paket stumm verwerfen, sonst hängt der Client,
+                        // weil wir seit matchDomains=[""] der einzige Resolver sind.
+                        let out = answer ?? filter.failureEnvelope(for: req)
+                        self.packetFlow.writePackets([out], withProtocols: [NSNumber(value: AF_INET)])
                     }
                 }
             }

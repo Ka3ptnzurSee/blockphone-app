@@ -36,11 +36,23 @@ final class DnsFilter {
     private let blocklist: Set<String>
     private let queue = DispatchQueue(label: "blockphone.dot")
 
-    private let dotServer = "1.1.1.1"          // IP-Literal → keine DNS-Auflösung nötig
     private let dotPort: UInt16 = 853
-    private let plainServer = "1.1.1.1"   // UDP-Fallback
     private let plainPort: UInt16 = 53
-    private let dotSni = "cloudflare-dns.com"  // SNI für Zertifikat-Validierung
+
+    /// Upstream-Kette, in dieser Reihenfolge probiert (DoT, dann UDP je Anbieter).
+    /// Zwei Anbieter, weil seit `matchDomains = [""]` dieser Filter der EINZIGE
+    /// Resolver des Geräts ist: fällt einer aus (Portsperre, Anbieter-IP
+    /// geblockt), übernimmt der andere. Der Host ist bewusst ein IP-Literal →
+    /// keine DNS-Auflösung nötig (sonst Selbstbezug).
+    private let upstreams: [(host: String, sni: String)] = [
+        ("1.1.1.1", "cloudflare-dns.com"),
+        ("8.8.8.8", "dns.google"),
+    ]
+
+    // Timeouts bewusst knapp: 4 Versuche × (1,5 s + 2 s) wäre für einen
+    // DNS-Client (typisch 5 s) zu lang — er gäbe vorher auf.
+    private let dotTimeout: TimeInterval = 1.5
+    private let udpTimeout: TimeInterval = 2.0
 
     // Ressourcen-Begrenzung: max. 16 gleichzeitige DoT-Verbindungen.
     // Bei Überlast wird gedroppt (der DNS-Client wiederholt die Anfrage).
@@ -125,9 +137,22 @@ final class DnsFilter {
 
     /// Synchron: NXDOMAIN-Antwort (komplettes IP/UDP/DNS-Paket) für geblockte Domain.
     func blockedEnvelope(for req: Request) -> Data {
+        statusEnvelope(for: req, rcode: 3)   // 3 = NXDOMAIN
+    }
+
+    /// Synchron: SERVFAIL. Wird gesendet, wenn KEIN Upstream geantwortet hat.
+    /// Wichtig: nicht einfach verwerfen — ein verworfener Request lässt den
+    /// Client bis zum eigenen Timeout hängen (bei `matchDomains = [""]` heißt
+    /// das: kein DNS im ganzen Gerät). SERVFAIL ist sofort und ehrlich.
+    func failureEnvelope(for req: Request) -> Data {
+        statusEnvelope(for: req, rcode: 2)   // 2 = SERVFAIL
+    }
+
+    /// Leere Antwort mit gegebenem RCODE (QR=1, RD=1, RA=1, 1 Frage, 0 Answers).
+    private func statusEnvelope(for req: Request, rcode: UInt16) -> Data {
         var dns = Data()
         dns.appendUInt16(UInt16(req.dnsData[0]) << 8 | UInt16(req.dnsData[1]))  // ID
-        dns.appendUInt16(0x8183)   // QR=1, RD=1, RA=1, RCODE=3 (NXDOMAIN)
+        dns.appendUInt16(0x8180 | (rcode & 0x000F))
         dns.appendUInt16(1)        // QDCOUNT
         dns.appendUInt16(0)        // ANCOUNT
         dns.appendUInt16(0)        // NSCOUNT
@@ -143,28 +168,45 @@ final class DnsFilter {
     /// das gesamte DNS verschlucken — sonst hat das Gerät gar kein Internet
     /// mehr. Deshalb nach einem DoT-Fehlschlag einmal klassisch per UDP fragen.
     func forward(_ req: Request, completion: @escaping (Data?) -> Void) {
-        // Überlast → droppen statt unbegrenzt Verbindungen aufzubauen.
+        // Überlast → nicht stumm verwerfen, sondern sofort SERVFAIL.
         guard semaphore.wait(timeout: .now()) == .success else {
+            completion(failureEnvelope(for: req))
+            return
+        }
+        attempt(req, index: 0) { [weak self] answer in
+            guard let self = self else { return }
+            self.semaphore.signal()
+            // Kein Upstream hat geantwortet → SERVFAIL statt Paket-Drop.
+            completion(answer ?? self.failureEnvelope(for: req))
+        }
+    }
+
+    /// Probiert die Upstream-Kette der Reihe nach: DoT → UDP, Anbieter 1 → 2.
+    private func attempt(_ req: Request, index: Int, completion: @escaping (Data?) -> Void) {
+        guard index < upstreams.count else {
             completion(nil)
             return
         }
-        forwardDoT(req) { [weak self] answer in
+        let up = upstreams[index]
+        forwardDoT(req, host: up.host, sni: up.sni) { [weak self] answer in
             guard let self = self else { return }
             if let answer = answer {
-                self.semaphore.signal()
                 completion(answer)
                 return
             }
-            self.forwardUDP(req) { udpAnswer in
-                self.semaphore.signal()
-                completion(udpAnswer)
+            self.forwardUDP(req, host: up.host) { udpAnswer in
+                if let udpAnswer = udpAnswer {
+                    completion(udpAnswer)
+                    return
+                }
+                self.attempt(req, index: index + 1, completion: completion)
             }
         }
     }
 
     /// Klassisches DNS über UDP/53 (Fallback, unverschlüsselt).
-    private func forwardUDP(_ req: Request, completion: @escaping (Data?) -> Void) {
-        let conn = NWConnection(host: NWEndpoint.Host(plainServer),
+    private func forwardUDP(_ req: Request, host: String, completion: @escaping (Data?) -> Void) {
+        let conn = NWConnection(host: NWEndpoint.Host(host),
                                 port: NWEndpoint.Port(rawValue: plainPort)!,
                                 using: .udp)
         let state = QueryState()
@@ -181,7 +223,7 @@ final class DnsFilter {
         }
 
         state.timeout = DispatchWorkItem { conn.cancel() }
-        queue.asyncAfter(deadline: .now() + 3, execute: state.timeout!)
+        queue.asyncAfter(deadline: .now() + udpTimeout, execute: state.timeout!)
 
         track(conn)
         conn.stateUpdateHandler = { s in
@@ -206,15 +248,16 @@ final class DnsFilter {
     }
 
     /// DoT-Weiterleitung (verschlüsselt, Port 853).
-    private func forwardDoT(_ req: Request, completion: @escaping (Data?) -> Void) {
+    private func forwardDoT(_ req: Request, host: String, sni: String,
+                            completion: @escaping (Data?) -> Void) {
         let tlsOptions = NWProtocolTLS.Options()
-        dotSni.withCString { cstr in
+        sni.withCString { cstr in
             sec_protocol_options_set_tls_server_name(tlsOptions.securityProtocolOptions, cstr)
         }
         sec_protocol_options_set_min_tls_protocol_version(tlsOptions.securityProtocolOptions, .TLSv12)
         let params = NWParameters(tls: tlsOptions)
 
-        let conn = NWConnection(host: NWEndpoint.Host(dotServer),
+        let conn = NWConnection(host: NWEndpoint.Host(host),
                                 port: NWEndpoint.Port(rawValue: dotPort)!,
                                 using: params)
         let state = QueryState()
@@ -230,9 +273,10 @@ final class DnsFilter {
             completion(result)
         }
 
-        // Timeout: hängende Verbindung nach 4s abbrechen (Client wiederholt).
+        // Timeout: hängende Verbindung abbrechen, damit der nächste Upstream
+        // drankommt (der Client wartet nicht beliebig lange).
         state.timeout = DispatchWorkItem { conn.cancel() }
-        queue.asyncAfter(deadline: .now() + 4, execute: state.timeout!)
+        queue.asyncAfter(deadline: .now() + dotTimeout, execute: state.timeout!)
 
         track(conn)
         conn.stateUpdateHandler = { s in
