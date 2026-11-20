@@ -102,6 +102,30 @@ const mustResolve = [
   "deutsche-bank.de",
   "elster.de",
 ];
+
+// CDNs von Apps, die der Blocker NICHT zerschiessen darf (Bilder/Video/Login).
+// Ein Treffer hier heisst: die App wirkt kaputt, nicht werbefrei.
+const cdnMustWork = [
+  "fbcdn.net",
+  "cdninstagram.com",
+  "tiktokcdn.com",
+  "googlevideo.com",
+  "i.ytimg.com",
+  "spotifycdn.com",
+  "mzstatic.com",
+  "googleusercontent.com",
+  "licdn.com",
+  "twimg.com",
+  "pinimg.com",
+  "sndcdn.com",
+  "cloudfront.net",
+  "mmg.whatsapp.net",
+  "icloud-content.com",
+  "ocsp.apple.com",
+  "captive.apple.com",
+  "time.apple.com",
+];
+const brokenCdn = cdnMustWork.filter((d) => matches(d, set));
 const falsePositives = mustResolve.filter((d) => matches(d, set));
 
 // --- Near-Misses: darf NICHT als Tracker gelten ---------------------------
@@ -125,6 +149,9 @@ console.log(
   `Fehlalarme auf Kern-Infrastruktur: ${falsePositives.length}` +
     (falsePositives.length ? ` — ${falsePositives.join(", ")}` : " (keine)"),
 );
+console.log(
+  `App-CDNs blockiert: ${brokenCdn.length}` + (brokenCdn.length ? ` — ${brokenCdn.join(", ")}` : " (keine)"),
+);
 console.log(`Near-Miss fälschlich geblockt: ${nearMissHits.length}${nearMissHits.length ? " — " + nearMissHits.join(", ") : " (keine)"}`);
 
 // Harte Fehler: kaputtes Format oder blockierte Kern-Infrastruktur.
@@ -133,6 +160,7 @@ if (empty > 0 || wildcard > 0 || tooLong > 0 || bareTld > 0) {
   hardFailures.push("Formatfehler in der Liste (leer/wildcard/>253/ohne Punkt)");
 }
 if (falsePositives.length > 0) hardFailures.push(`Fehlalarm: ${falsePositives.join(", ")}`);
+if (brokenCdn.length > 0) hardFailures.push(`App-CDN geblockt: ${brokenCdn.join(", ")}`);
 if (adSamples.length - missingTrackers.length < adSamples.length * 0.8) {
   hardFailures.push(`Tracker-Abdeckung unter 80 % (${adSamples.length - missingTrackers.length}/${adSamples.length})`);
 }
