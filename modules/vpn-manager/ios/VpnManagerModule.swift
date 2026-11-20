@@ -143,8 +143,14 @@ final class VpnService {
         }) else { return }
 
         if let proto = mgr.protocolConfiguration as? NETunnelProviderProtocol {
-            let ads = (proto.providerConfiguration?["ads"] as? Bool) ?? false
-            proto.providerConfiguration = ["blocklist": clean(domains), "ads": ads]
+            // Bestehende Konfiguration ERHALTEN: nur die Blocklist ersetzen.
+            // Vorher wurde sie überschrieben (["blocklist": …, "ads": …]) —
+            // damit fielen allowlist und mode weg und "Internet aus"
+            // (mode=allowlist) kippte still auf blocklist zurück: die Sperre
+            // war danach wirkungslos, ohne Fehlermeldung.
+            var cfg = proto.providerConfiguration ?? [:]
+            cfg["blocklist"] = clean(domains)
+            proto.providerConfiguration = cfg
             mgr.protocolConfiguration = proto
             try await save(mgr)
         }
