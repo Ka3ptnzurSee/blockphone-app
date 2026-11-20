@@ -71,16 +71,35 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                               completionHandler: @escaping (Error?) -> Void) {
         let rules = loadRules()
         var blocklist = rules.blocklist
+        var adsCount = 0
         if rules.ads && rules.mode != "allowlist" {
             let ads = Self.loadAdDomains()
+            adsCount = ads.count
             if !ads.isEmpty { blocklist += ads }
         }
+        // Wenn der Nutzer den Werbeblocker einschaltet, die Liste aber nicht im
+        // Extension-Bundle liegt, blockt der Tunnel NICHTS und niemand sieht
+        // warum. Deshalb hier laut ins Gerätelog (Console.app, Subsystem
+        // com.meister.blockphone) statt still leer weiterzulaufen.
+        NSLog("[Blockphone] Tunnel-Start: ads=%d, adblock-Ressource=%d Domains, blocklist=%d, allowlist=%d, mode=%@",
+              rules.ads ? 1 : 0, adsCount, blocklist.count, rules.allowlist.count, rules.mode)
 
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "10.8.0.1")
         let ipv4 = NEIPv4Settings(addresses: ["10.8.0.1"], subnetMasks: ["255.255.255.255"])
         ipv4.includedRoutes = [NEIPv4Route(destinationAddress: "10.8.0.1", subnetMask: "255.255.255.255")]
         settings.ipv4Settings = ipv4
-        settings.dnsSettings = NEDNSSettings(servers: ["10.8.0.1"])
+        let dns = NEDNSSettings(servers: ["10.8.0.1"])
+        // matchDomains ist hier PFLICHT, nicht optional: Der Tunnel ist bewusst
+        // NICHT die Default-Route (includedRoutes = nur 10.8.0.1/32). Apple:
+        // „This property is used to create a 'split DNS' configuration … Hosts
+        // not in one of the domains in this list are resolved using the system's
+        // default resolver. If [matchDomains] contains the empty string it
+        // becomes the default domain. This is how a split-tunnel configuration
+        // can direct all DNS queries first to the VPN DNS servers.“
+        // Ohne die leere Domain gingen alle Queries am Tunnel vorbei → der
+        // Werbeblocker blockte nachweislich 0 Domains.
+        dns.matchDomains = [""]
+        settings.dnsSettings = dns
         settings.mtu = 1280
 
         let f = DnsFilter(blocklist: blocklist, allowlist: rules.allowlist, mode: rules.mode)
