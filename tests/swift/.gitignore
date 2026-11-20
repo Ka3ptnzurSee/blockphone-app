@@ -1,0 +1,3 @@
+# Wird im CI aus targets/packettunnel/ kopiert - nicht einchecken.
+Sources/TunnelCore/
+.build/

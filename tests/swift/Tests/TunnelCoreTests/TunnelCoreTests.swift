@@ -16,11 +16,12 @@ final class TunnelCoreTests: XCTestCase {
 
     // MARK: - Paket-Bau-Helfer
 
-    private func dnsQuery(name: String, id: UInt16 = 0xBEEF, qtype: UInt16 = 1) -> Data {
+    private func dnsQuery(name: String, id: UInt16 = 0xBEEF, qtype: UInt16 = 1,
+                          qdcount: UInt16 = 1) -> Data {
         var dns = Data()
         dns.append(contentsOf: [UInt8(id >> 8), UInt8(id & 0xFF)])
         dns.append(contentsOf: [0x01, 0x00])            // RD
-        dns.append(contentsOf: [0x00, 0x01])            // QDCOUNT
+        dns.append(contentsOf: [UInt8(qdcount >> 8), UInt8(qdcount & 0xFF)])  // QDCOUNT
         dns.append(contentsOf: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
         for label in name.split(separator: ".") {
             dns.append(UInt8(label.utf8.count))
@@ -40,7 +41,8 @@ final class TunnelCoreTests: XCTestCase {
         srcPort: UInt16 = 5353,
         dstPort: UInt16 = 53,
         proto: UInt8 = 17,
-        version: UInt8 = 4
+        version: UInt8 = 4,
+        ipOptions: Int = 0      // Vielfaches von 4 → IHL > 5
     ) -> Data {
         var udp = Data()
         udp.append(contentsOf: [UInt8(srcPort >> 8), UInt8(srcPort & 0xFF)])
@@ -50,9 +52,10 @@ final class TunnelCoreTests: XCTestCase {
         udp.append(contentsOf: [0, 0])
         udp.append(dns)
 
-        var ip = [UInt8](repeating: 0, count: 20)
-        ip[0] = (version << 4) | 5
-        let total = 20 + udp.count
+        let ihl = 5 + ipOptions / 4
+        var ip = [UInt8](repeating: 0, count: 20 + ipOptions)
+        ip[0] = (version << 4) | UInt8(ihl)
+        let total = ip.count + udp.count
         ip[2] = UInt8((total >> 8) & 0xFF)
         ip[3] = UInt8(total & 0xFF)
         ip[8] = 64
@@ -110,8 +113,38 @@ final class TunnelCoreTests: XCTestCase {
         let filter = DnsFilter(blocklist: [])
         // Header ok, aber ein Label behauptet 60 Zeichen, es folgen 3.
         var dns = dnsQuery(name: "a.de")
-        dns[dns.count - 5] = 60
+        // Layout: Header 12 | Label "a"@12 | 'a'@13 | Label "de"@14 | Root@17 | QTYPE@18
+        XCTAssertEqual(dns[17], 0, "Root-Label muss auf Offset 17 liegen")
+        dns[17] = 60
         XCTAssertNil(filter.parse(packet: packet(dns: dns)))
+    }
+
+    func testAcceptsIpv4WithOptions() throws {
+        // IHL > 5 (IPv4-Optionen) darf den Parser nicht verrutschen lassen:
+        // sonst wuerde der UDP-Header an der falschen Stelle gelesen.
+        let filter = DnsFilter(blocklist: [])
+        let req = try XCTUnwrap(
+            filter.parse(packet: packet(dns: dnsQuery(name: "example.com"), ipOptions: 8))
+        )
+        XCTAssertEqual(req.name, "example.com")
+        XCTAssertEqual(req.dstPort, 53)
+    }
+
+    func testRejectsWrongQdcountAndResponses() {
+        let filter = DnsFilter(blocklist: [])
+        // QDCOUNT 0 und 2 sind keine normalen Client-Queries.
+        XCTAssertNil(filter.parse(packet: packet(dns: dnsQuery(name: "example.com", qdcount: 0))))
+        XCTAssertNil(filter.parse(packet: packet(dns: dnsQuery(name: "example.com", qdcount: 2))))
+
+        // QR=1 (eine Antwort, keine Anfrage) darf nicht weiterverarbeitet werden.
+        var answer = dnsQuery(name: "example.com")
+        answer[2] = answer[2] | 0x80
+        XCTAssertNil(filter.parse(packet: packet(dns: answer)))
+
+        // Opcode != 0 (z.B. UPDATE) ebenfalls nicht.
+        var update = dnsQuery(name: "example.com")
+        update[2] = update[2] | 0x28
+        XCTAssertNil(filter.parse(packet: packet(dns: update)))
     }
 
     // MARK: - isBlocked
@@ -165,7 +198,7 @@ final class TunnelCoreTests: XCTestCase {
         XCTAssertEqual(Int(b[24]) << 8 | Int(b[25]), udpLen, "UDP-Länge")
     }
 
-    private func assertValidUdpChecksum(_ pkt: Data, db: [UInt8]) {
+    private func assertValidUdpChecksum(_ pkt: Data) {
         let b = bytes(pkt)
         XCTAssertNotEqual(Int(b[26]) << 8 | Int(b[27]), 0, "UDP-Checksumme darf nicht 0 sein")
         // Pseudo-Header: src, dst, 0, proto, udpLen
@@ -177,7 +210,6 @@ final class TunnelCoreTests: XCTestCase {
         pseudo.append(UInt8(udpLen & 0xFF))
         pseudo.append(contentsOf: b[20...])
         XCTAssertEqual(checksumSum(pseudo), 0, "UDP-Checksumme ungültig (Client verwirft die Antwort)")
-        _ = db
     }
 
     func testBlockedEnvelopeIsWellFormed() throws {
@@ -186,9 +218,11 @@ final class TunnelCoreTests: XCTestCase {
 
         let out = filter.blockedEnvelope(for: req)
         let b = bytes(out)
-        let udpLen = Int(calcUdpPayload(b))   // Feld im UDP-Header = 8 + DNS-Payload
+        // Unabhaengig gerechnet: UDP-Laenge = alles nach dem IP-Header.
+        let udpLen = b.count - 20
+        XCTAssertEqual(Int(calcUdpPayload(b)), udpLen, "UDP-Laengenfeld falsch")
         assertValidIpv4(out, src: [10, 8, 0, 1], dst: [10, 8, 0, 2], udpLen: udpLen)
-        assertValidUdpChecksum(out, db: b)
+        assertValidUdpChecksum(out)
 
         // UDP-Ports gedreht: 53 -> Client-Port
         XCTAssertEqual(Int(b[20]) << 8 | Int(b[21]), 53)
